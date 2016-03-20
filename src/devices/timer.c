@@ -7,6 +7,7 @@
 #include "threads/io.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include <list.h>
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -29,6 +30,9 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 
+static bool less (const struct list_elem*, const struct list_elem*, void*);
+static struct list sleep_list;
+
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
@@ -44,6 +48,8 @@ timer_init (void)
   outb (0x40, count >> 8);
 
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+
+  list_init(&sleep_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -97,10 +103,15 @@ void
 timer_sleep (int64_t ticks) 
 {
   int64_t start = timer_ticks ();
+  struct thread *current_thread = thread_current ();
+  enum intr_level current_thread_intr_level;
 
-  ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  current_thread_intr_level = intr_disable ();
+  current_thread->timer_sleep_ticks = start + ticks;
+  list_push_back (&sleep_list, &current_thread->elem);
+  thread_block ();
+  intr_set_level (current_thread_intr_level);
+
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -135,9 +146,40 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
+  struct list_elem *temp_elem;
+  struct thread *temp_thread;
   ticks++;
+  if (!list_empty(&sleep_list))
+  {
+    temp_elem = list_max (&sleep_list, less, NULL);
+    temp_thread = list_entry (temp_elem, struct thread, elem);
+    while (timer_ticks () >= temp_thread->timer_sleep_ticks)
+    {
+      list_remove (temp_elem);
+      thread_unblock (temp_thread);
+      if (list_empty(&sleep_list))
+        break;
+      temp_elem = list_max (&sleep_list, less, NULL);
+      temp_thread = list_entry (temp_elem, struct thread, elem);
+    }
+  }
+
+
   thread_tick ();
 }
+
+static bool
+less (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct thread *a_thread = list_entry (a, struct thread, elem);
+  struct thread *b_thread = list_entry (b, struct thread, elem);
+
+  if (a_thread->timer_sleep_ticks == b_thread->timer_sleep_ticks)
+    return (a_thread->priority <= b_thread->priority);
+  else
+    return (a_thread->timer_sleep_ticks > b_thread->timer_sleep_ticks);
+}
+
 
 /* Returns true if LOOPS iterations waits for more than one timer
    tick, otherwise false. */
