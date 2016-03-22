@@ -316,8 +316,8 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (curr != idle_thread) 
-    list_insert_ordered (&ready_list, &curr->elem, cmp_priority, NULL);
-    // list_push_back (&ready_list, &curr->elem);
+    // list_insert_ordered (&ready_list, &curr->elem, cmp_priority, NULL);
+    list_push_back (&ready_list, &curr->elem);
   curr->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -476,6 +476,7 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
+  list_sort (&ready_list, cmp_priority, NULL);
   if (list_empty (&ready_list))
     return idle_thread;
   else
