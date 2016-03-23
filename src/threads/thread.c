@@ -205,10 +205,8 @@ thread_create (const char *name, int priority,
   thread_unblock (t);
 
   /* re-schedule */
-  if (priority >= thread_current ()->priority)
-  {
+  if (priority > thread_current ()->priority)
     thread_yield ();
-  }
 
   return tid;
 }
@@ -308,16 +306,14 @@ thread_exit (void)
 void
 thread_yield (void) 
 {
-  struct thread *curr = thread_current ();
   enum intr_level old_level;
   
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
-  if (curr != idle_thread) 
-    // list_insert_ordered (&ready_list, &curr->elem, cmp_priority, NULL);
-    list_push_back (&ready_list, &curr->elem);
-  curr->status = THREAD_READY;
+  if (thread_current () != idle_thread) 
+    list_push_back (&ready_list, &thread_current ()->elem);
+  thread_current ()->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
 }
@@ -326,8 +322,8 @@ thread_yield (void)
 void
 thread_set_priority (int new_priority) 
 {
-  int old_priority = thread_current ()->priority;
-  if (thread_current ()->priority <= thread_current ()->original_priority)
+  int old_priority = thread_get_priority ();
+  if (thread_get_priority () <= thread_current ()->original_priority)
     thread_current ()->priority = new_priority;
   thread_current ()->original_priority = new_priority;
   if (old_priority > new_priority)
@@ -484,11 +480,15 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
-  list_sort (&ready_list, cmp_priority, NULL);
+  struct list_elem *elem;
   if (list_empty (&ready_list))
     return idle_thread;
   else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  {
+    elem = list_min (&ready_list, cmp_priority, NULL);
+    list_remove (elem);
+    return list_entry (elem, struct thread, elem);
+  }
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -578,7 +578,8 @@ allocate_tid (void)
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
-bool cmp_priority (struct list_elem *a, struct list_elem *b, void *aux UNUSED)
+bool
+cmp_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
   struct thread *a_thread = list_entry (a, struct thread, elem);
   struct thread *b_thread = list_entry (b, struct thread, elem);
