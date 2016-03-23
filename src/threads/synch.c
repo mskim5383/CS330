@@ -32,6 +32,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+bool cmp_semaphore_elem (struct list_elem *, struct list_elem *, void *);
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -331,6 +333,7 @@ struct semaphore_elem
   {
     struct list_elem elem;              /* List element. */
     struct semaphore semaphore;         /* This semaphore. */
+    struct thread *locking_thread;
   };
 
 /* Initializes condition variable COND.  A condition variable
@@ -375,6 +378,7 @@ cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   sema_init (&waiter.semaphore, 0);
+  waiter.locking_thread = thread_current ();
   list_push_back (&cond->waiters, &waiter.elem);
   lock_release (lock);
   sema_down (&waiter.semaphore);
@@ -397,8 +401,11 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (lock_held_by_current_thread (lock));
 
   if (!list_empty (&cond->waiters)) 
+  {
+    list_sort (&cond->waiters, cmp_semaphore_elem, NULL);
     sema_up (&list_entry (list_pop_front (&cond->waiters),
                           struct semaphore_elem, elem)->semaphore);
+  }
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
@@ -417,9 +424,18 @@ cond_broadcast (struct condition *cond, struct lock *lock)
     cond_signal (cond, lock);
 }
 
-bool cmp_lock (struct list_elem *a, struct list_elem *b, void *aux UNUSED)
+bool
+cmp_lock (struct list_elem *a, struct list_elem *b, void *aux UNUSED)
 {
   struct lock *a_lock = list_entry (a, struct lock, elem);
   struct lock *b_lock = list_entry (b, struct lock, elem);
   return a_lock->highest_locked_thread_priority > b_lock->highest_locked_thread_priority;
+}
+
+bool
+cmp_semaphore_elem (struct list_elem *a, struct list_elem *b, void *aux UNUSED)
+{
+  struct thread *a_thread = list_entry (a, struct semaphore_elem, elem)->locking_thread;
+  struct thread *b_thread = list_entry (b, struct semaphore_elem, elem)->locking_thread;
+  return a_thread->priority > b_thread->priority;
 }

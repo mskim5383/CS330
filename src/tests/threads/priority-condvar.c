@@ -48,7 +48,6 @@ priority_condvar_thread (void *aux UNUSED)
   msg ("Thread %s starting.", thread_name ());
   lock_acquire (&lock);
   cond_wait (&condition, &lock);
-  msg ("%d", thread_current ()->priority);
   msg ("Thread %s woke up.", thread_name ());
   lock_release (&lock);
 }
