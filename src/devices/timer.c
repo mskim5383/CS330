@@ -30,8 +30,9 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 
-static bool less (const struct list_elem*, const struct list_elem*, void*);
 static struct list sleep_list;
+
+static bool cmp_thread_ticks (const struct list_elem *, const struct list_elem *, void *);
 
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
@@ -103,15 +104,13 @@ void
 timer_sleep (int64_t ticks) 
 {
   int64_t start = timer_ticks ();
-  struct thread *current_thread = thread_current ();
-  enum intr_level current_thread_intr_level;
+  enum intr_level old_level;
 
-  current_thread_intr_level = intr_disable ();
-  current_thread->timer_sleep_ticks = start + ticks;
-  list_push_back (&sleep_list, &current_thread->elem);
+  old_level = intr_disable ();
+  thread_current ()->timer_sleep_ticks = start + ticks;
+  list_push_back (&sleep_list, &thread_current ()->elem);
   thread_block ();
-  intr_set_level (current_thread_intr_level);
-
+  intr_set_level (old_level);
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -146,38 +145,12 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
-  struct list_elem *temp_elem;
-  struct thread *temp_thread;
   ticks++;
-  if (!list_empty(&sleep_list))
-  {
-    temp_elem = list_max (&sleep_list, less, NULL);
-    temp_thread = list_entry (temp_elem, struct thread, elem);
-    while (timer_ticks () >= temp_thread->timer_sleep_ticks)
-    {
-      list_remove (temp_elem);
-      thread_unblock (temp_thread);
-      if (list_empty(&sleep_list))
-        break;
-      temp_elem = list_max (&sleep_list, less, NULL);
-      temp_thread = list_entry (temp_elem, struct thread, elem);
-    }
-  }
-
+  list_sort(&sleep_list, cmp_thread_ticks, NULL);
+  while (!list_empty(&sleep_list) && timer_ticks () >= list_entry (list_front (&sleep_list), struct thread, elem)->timer_sleep_ticks)
+    thread_unblock (list_entry (list_pop_front (&sleep_list), struct thread, elem));
 
   thread_tick ();
-}
-
-static bool
-less (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
-{
-  struct thread *a_thread = list_entry (a, struct thread, elem);
-  struct thread *b_thread = list_entry (b, struct thread, elem);
-
-  if (a_thread->timer_sleep_ticks == b_thread->timer_sleep_ticks)
-    return (a_thread->priority <= b_thread->priority);
-  else
-    return (a_thread->timer_sleep_ticks > b_thread->timer_sleep_ticks);
 }
 
 
@@ -244,3 +217,14 @@ real_time_sleep (int64_t num, int32_t denom)
     }
 }
 
+static bool
+cmp_thread_ticks (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct thread *a_thread = list_entry (a, struct thread, elem);
+  struct thread *b_thread = list_entry (b, struct thread, elem);
+
+  if (a_thread->timer_sleep_ticks == b_thread->timer_sleep_ticks)
+    return (a_thread->priority > b_thread->priority);
+  else
+    return (a_thread->timer_sleep_ticks < b_thread->timer_sleep_ticks);
+}
