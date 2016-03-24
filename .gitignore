@@ -5,3 +5,4 @@ bochsout.txt
 spec
 src/examples/*
 doc/*
+._*
