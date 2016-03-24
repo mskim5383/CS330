@@ -205,7 +205,7 @@ thread_create (const char *name, int priority,
   thread_unblock (t);
 
   /* re-schedule */
-  if (priority > thread_current ()->priority)
+  if (priority > thread_get_priority ())
     thread_yield ();
 
   return tid;
