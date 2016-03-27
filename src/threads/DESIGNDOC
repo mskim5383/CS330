@@ -1,0 +1,113 @@
+---- TEAM ----
+>> Team name.
+Team 33
+>> Fill in the names, email addresses and contributions of your team members.
+
+MINSOO KIM <kanon@kaist.ac.kr > (50)
+JAEMIN SHIN <999fg@kaist.ac.kr> (50)
+
+
+>> Specify how many tokens your team will use.
+0 token
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for the TAs, or extra credit, please give them here.
+
+>> Please cite any offline or online sources you consulted while preparing your submission, other than the Pintos documentation, course text, lecture notes, and course staff.
+
+ 
+ALARM CLOCK
+===========
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or `struct' member, global or static variable, `typedef', or enumeration.  Identify the purpose of each in 25 words or less.
+Inside src/devices/timer.c, new static struct
+ static struct list sleep_list;
+At the timer_sleep call, the running thread enters the sleep_list and stays until it’s time_sleep ticks are done.
+Inside src/threads/thread.h, inside struct thread, new member
+ int64_t timer_sleep_ticks;
+At the timer_sleep call, the time(in ticks) that thread should stop sleeping is recorded in this member. This is checked by timer_interrupt.
+---- ALGORITHMS ----
+
+>> A2: Briefly describe what happens in a call to timer_sleep(), including the effects of the timer interrupt handler.
+The current time is recorded in variable ‘int64_t start’, then the interrupt becomes disabled. Next, the current thread records its wakeup time at it’s member ‘timer_sleep_ticks’ as (start+ticks). Then, the current thread enters the sleep_list and become blocked. Finally, the interrupt level returns to the original state. No timer interrupt could interrupt during the call since the interrupt handler blocked the interrupt at the beginning.
+>> A3: What steps are taken to minimize the amount of time spent in the timer interrupt handler?
+When the timer interrupt wakes all threads that have less timer_sleep_ticks than the current ticks, it sort the sleep_list (O(nlgn)) and pop the front element of the list until timer_sleep_ticks of the front entry is less than current ticks. (O(n)) These steps is more efficient than call list_min all the time. (O(n) for each list_min -> O(n^2))
+---- SYNCHRONIZATION ----
+
+>> A4: How are race conditions avoided when multiple threads call timer_sleep() simultaneously?
+We designed to disable the interrupt when timer_sleep() is called. Thus only one thread can enter the process to timer_sleep.
+>> A5: How are race conditions avoided when a timer interrupt occurs during a call to timer_sleep()?
+Interrupts are disabled at the very beginning of timer_sleep(), and returns to the original level at the end of the call. The code used for interrupt handling is as follows;
+enum intr_level old_level;
+old level = intr_disable();
+--timer_sleep() CODE BETWEEN—
+intr_set_level (old_level);
+
+
+---- RATIONALE ----
+
+>> A6: Why did you choose this design?  In what ways is it superior to another design you considered?
+Instead of the original code that called thread_yield() for given time ‘ticks’, this design is to block the thread for the time ‘ticks’. This design was superior since it used the struct list (defined in src/lib/kernel/list.h) to handle sleeping threads, which has lot of useful functions that enabled to sort the threads by timer_sleep_ticks; which was very helpful to wake up the threads in order. 
+ 
+PRIORITY SCHEDULING
+===================
+
+---- DATA STRUCTURES ----
+
+>> B1: Copy here the declaration of each new or changed `struct' or `struct' member, global or static variable, `typedef', or enumeration.  Identify the purpose of each in 25 words or less.
+Inside src/threads/synch.h, inside struct lock, new member
+struct list_elem elem;  used to make a list of lock in struct thread
+int highest_locked_thread_priority;  used for donation; when thread having higher priority is trying to acquire the lock, saves it’s priority here
+
+Inside src/threads/synch.c, inside struct semaphore_elem, new member
+struct thread *locking_thread;  saves the thread to each waiter, so the waiter having thread with highest priority gets sema-up at cond_signal
+
+Inside src/threads/thread.h, inside struct thread, new member
+int original_priority;  saves the thread’s original priority, which is not changed by donation
+struct list holding_lock;  saves the list of lock that this thread aquired
+struct lock *locking;  saves the lock which the thread is waiting to use
+bool locked  true if the thread is waiting for some lock to use, false otherwise
+
+
+>> B2: Explain the data structure used to track priority donation. Draw a diagram in a case of nested donation.  
+For priority donation, ‘int original_priority’, ‘struct lock *locking’, ‘struct list holding_lock’ in struct thread, ‘int highest_locked_thread_priority’, and ‘struct thread *holder’ in ‘struct lock’ are used. In a point of view of lock, when thread having higher priority is trying to acquire it, lock saves the high priority in ‘highest_locked_thread_priority’ and passes the priority to the lock’s holder’s priority. The thread having higher priority saves the lock as ‘locking’. This is the process of donation. At the lock release, the thread need to roll-back the priority, so it chooses highest priority among the ‘highest_locked_thread_priority’ value of locks in ‘holding_lock’. However, if the holding_lock is empty, the thread saves the ‘original priority’ as its priority.
+ 
+---- ALGORITHMS ----
+
+>> B3: How do you ensure that the highest priority thread waiting for a lock, semaphore, or condition variable wakes up first?
+Threads waiting for lock, semaphore, condvar are saved in a certain ‘struct list’. Every time waking up a thread from those list, we used list_min and cmp_priority(function in src/threads/thread.c which compares list_elem by their priority) to get the list element which has the highest priority. 
+>> B4: Describe the sequence of events when a call to lock_acquire() causes a priority donation.  How is nested donation handled?
+Before sema_down, the thread saves the lock at its member ‘locking’, and alters the member ‘locked’ into true. Then, the following events occur. You can omit the signs made of number with the parentheses while reading inside <>. <if the (1): ‘thread’s current priority’ is higher than the lock’s (2): ‘highest_locked_thread_priority’, then (1) is saved in (2). After that, if (2) is higher than the (3): ‘priority of the thread which the lock holds’, then (2) is saved in (3).> The events in <> is unit work for nested donation, so these events are handled in a for loop with 8 iterations, which breaks out when there is no more thread that nested lock holds. After all these events, sema_down is called.
+>> B5: Describe the sequence of events when lock_release() is called on a lock that a higher-priority thread is waiting for.
+Before sema_up, the lock is removed from the current thread’s list ‘holding_lock’. After that, if the list ‘holding_lock’ is empty, the thread’s priority is saved as it’s member ‘original_priority’. Otherwise searches through the list ‘holding_lock’ and find the highest value of ‘highest_locked_thread_priority’, then saves it as a thread’s priority if it is less than the priority the thread had and bigger than the original priority of the thread. After that, PRI_MIN is saved into the lock’s(which is being released now) member ‘highest_locked_thread_priority’, and this lock’s holder becomes NULL value. After all these events, sema_up is called.
+---- SYNCHRONIZATION ----
+
+>> B6: Describe a potential race in thread_set_priority() and explain how your implementation avoids it.  Can you use a lock to avoid this race?
+When the current thread(A) is going to set its priority, if an interrupt wake another thread after A is pushed to sleep_list before thread_block, timer_interrupt may wake A by thread_unblock and an assertion occurs. (Because A’s status is not THREAD_BLOCKED) Thus we disable the interrupt at the beginning of thread_set_priority and retore it after the process is done.
+Using a lock raise dead lock.
+
+
+---- RATIONALE ----
+
+>> B7: Why did you choose this design?  In what ways is it superior to another design you considered?
+원래는 lock에 hold된 thread를 모두 저장하여 그 중 가장 큰 priority를 매번 고르는 디자인을 생각했었는데 가장 큰 priority를 update하는 방법으로 변경하였다. 어떤 thread가 한 번 lock에 걸리면 release하기 전까지는 깨어나지 않으므로 priority가 바뀔 염려가 없으므로 lock에 걸린 thread들 중 가장 큰 priority를 고를 때 굳이 현재 상태를 고려할 필요가 없다. 따라서 이 과정을 O(1)에 할 수 있게 되었다.
+       
+ 
+SURVEY QUESTIONS
+================
+
+Answering these questions is optional, but it will help us improve the course in future quarters.  Feel free to tell us anything you want--these questions are just to spur your thoughts.  You may also choose to respond anonymously in the course evaluations at the end of the quarter.
+
+>> In your opinion, was this assignment or any one of the two problems in it, too easy or too hard?  Did it take too long or too little time?
+
+>> Did you find that working on a particular part of the assignment gave you greater insight into some aspect of OS design?
+
+>> Is there some particular fact or hint we should give students in future quarters to help them solve the problems?  Conversely, did you find any of our guidance to be misleading?
+
+>> Do you have any suggestions for the TAs to more effectively assist students, either for future quarters or the remaining projects?
+
+>> Any other comments?
+
