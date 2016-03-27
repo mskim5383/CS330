@@ -287,7 +287,10 @@ lock_release (struct lock *lock)
     elem = list_min (&thread_current ()->holding_lock, cmp_lock, NULL);
     new_priority = list_entry(elem, struct lock, elem)->highest_locked_thread_priority;
     if (new_priority < thread_get_priority ())
-      thread_current ()->priority = new_priority;
+      if (new_priority > thread_current ()->original_priority)
+        thread_current ()->priority = new_priority;
+      else
+        thread_current ()->priority = thread_current ()->original_priority;
   }
   lock->highest_locked_thread_priority = PRI_MIN;
   lock->holder = NULL;
