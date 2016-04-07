@@ -90,6 +90,8 @@ start_process (void *f_name)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  int i = 10000000;
+  while (i--);
   return -1;
 }
 
@@ -439,7 +441,7 @@ setup_stack (void **esp)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        *esp = PHYS_BASE;
+        *esp = PHYS_BASE - 12;
       else
         palloc_free_page (kpage);
     }
