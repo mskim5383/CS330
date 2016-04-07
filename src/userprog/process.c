@@ -31,6 +31,8 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
 
+  char *fn, *save;
+
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
@@ -38,8 +40,14 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  fn = malloc (strlen (file_name) + 1);
+  
+  memcpy (fn, file_name, strlen (file_name) + 1);
+  file_name = strtok_r (fn, " ", &save);
+  
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (fn, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -54,12 +62,59 @@ start_process (void *f_name)
   struct intr_frame if_;
   bool success;
 
+  char *token, *save_ptr;
+  void *start;
+  int argc, i;
+  int *argv_off;
+  struct thread *t;
+  size_t file_name_len;
+
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+
+  t = thread_current ();
+  argc = 0;
+  argv_off = malloc (32 * sizeof (int));
+  
+  file_name_len = strlen (file_name);
+  argv_off[0] = 0;
+  
+  for(token = strtok_r (file_name, " ", &save_ptr);
+      token != NULL;
+      token = strtok_r (NULL, " ", &save_ptr))
+  {
+    while (*(save_ptr) == ' ')
+      ++save_ptr;
+    argv_off[++argc] = save_ptr - file_name;  
+  }
+
   success = load (file_name, &if_.eip, &if_.esp);
+
+  if (success)
+    {
+      if_.esp -= file_name_len + 1;
+      start = if_.esp;
+      memcpy (if_.esp, file_name, file_name_len + 1);
+      if_.esp -= 4 - (file_name_len + 1) % 4;
+      if_.esp -= 4;
+      *(int *)(if_.esp) = 0;
+
+      for (i = argc - 1; i >= 0; --i)
+        {
+          if_.esp -= 4;
+          *(void **)(if_.esp) = start + argv_off[i];
+        }
+      
+      if_.esp -= 4;
+      *(char **)(if_.esp) = (if_.esp + 4);
+      if_.esp -= 4;
+      *(int *)(if_.esp) = argc;
+      if_.esp -= 4;
+      *(int *)(if_.esp) = 0;
+    }
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
