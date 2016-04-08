@@ -29,10 +29,8 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
-  char *fn_copy;
+  char *fn_copy, *fn_tmp, *save_ptr;;
   tid_t tid;
-
-  char *fn, *save;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -41,14 +39,13 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
-  fn = malloc (strlen (file_name) + 1);
+  fn_tmp = malloc (strlen (file_name) + 1);
   
-  memcpy (fn, file_name, strlen (file_name) + 1);
-  file_name = strtok_r (fn, " ", &save);
+  memcpy (fn_tmp, file_name, strlen (file_name) + 1);
+  file_name = strtok_r (fn_tmp, " ", &save_ptr);
   
-
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (fn, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (fn_tmp, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -63,12 +60,11 @@ start_process (void *f_name)
   struct intr_frame if_;
   bool success;
 
-  char *token, *save_ptr;
-  void *start;
   int argc, i;
-  int *argv_off;
-  struct thread *t;
-  size_t file_name_len;
+  int *argv_save;
+  size_t fn_len;;
+  char *token, *save_ptr;
+  void *fn_real_start;
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -76,41 +72,35 @@ start_process (void *f_name)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
 
-  t = thread_current ();
-  argc = 0;
-  argv_off = malloc (32 * sizeof (int));
   
-  file_name_len = strlen (file_name);
-  argv_off[0] = 0;
+  fn_len = strlen (file_name);
+  argv_save = malloc (32 * sizeof (int));
+  argv_save[0] = 0;
+  argc = 0; 
   
-  for(token = strtok_r (file_name, " ", &save_ptr);
-      token != NULL;
+  for(token = strtok_r (file_name, " ", &save_ptr); token != NULL;
       token = strtok_r (NULL, " ", &save_ptr))
   {
     while (*(save_ptr) == ' ')
       ++save_ptr;
-    argv_off[++argc] = save_ptr - file_name;  
+    argv_save[++argc] = save_ptr - file_name;  
   }
 
   success = load (file_name, &if_.eip, &if_.esp);
 
   if (success)
     {
-      if_.esp -= file_name_len + 1;
-      start = if_.esp;
-      memcpy (if_.esp, file_name, file_name_len + 1);
-      if_.esp -= 4 - (file_name_len + 1) % 4;
-      if_.esp -= 4;
+      if_.esp -= fn_len + 1;
+      memcpy (if_.esp, file_name, fn_len +1);
+      fn_real_start = if_.esp;
+      if_.esp -= 4 + (-fn_len - 1) % 4;
       *(int *)(if_.esp) = 0;
-
-      for (i = argc - 1; i >= 0; --i)
-        {
-          if_.esp -= 4;
-          *(void **)(if_.esp) = start + argv_off[i];
-        }
-      
+      for(i = 0; i < argc; i++){
+        if_.esp -= 4;
+        *(void **)(if_.esp) = fn_real_start + argv_save[argc-i-1];
+      }
       if_.esp -= 4;
-      *(char **)(if_.esp) = (if_.esp + 4);
+      *(void **)(if_.esp) = if_.esp + 4;
       if_.esp -= 4;
       *(int *)(if_.esp) = argc;
       if_.esp -= 4;
