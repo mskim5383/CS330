@@ -20,6 +20,9 @@ static bool sys_create (const char *, unsigned);
 static int sys_open (const char *);
 static int sys_close (int);
 static int sys_read (int, void *, unsigned);
+static int sys_filesize (int);
+static void sys_seek (int, unsigned);
+static unsigned sys_tell (int);
 
 static int allocate_fd ();
 static struct file_fd *find_file_fd (int);
@@ -79,6 +82,15 @@ syscall_handler (struct intr_frame *f)
     case SYS_READ:
       ret = sys_read (*(p + 1), *(p + 2), *(p + 3));
       break;
+    case SYS_FILESIZE:
+      ret = sys_filesize (*(p + 1));
+      break;
+    case SYS_SEEK:
+      sys_seek (*(p + 1), *(p + 2));
+      break;
+    case SYS_TELL:
+      ret = sys_tell (*(p + 1));
+      break;
   }
 
   f->eax = ret;
@@ -86,6 +98,18 @@ syscall_handler (struct intr_frame *f)
   return;
 }
 
+
+static int
+sys_write (int fd, const void *buffer, unsigned length)
+{
+  int ret;
+
+  ret = -1;
+  if (fd != STDIN_FILENO)
+    putbuf (buffer, length);
+
+  return ret;
+}
 
 static int
 sys_halt (void)
@@ -183,26 +207,29 @@ sys_read (int fd, void *buffer, unsigned size)
 }
 
 static int
-sys_write (int fd, const void *buffer, unsigned length)
+sys_filesize (int fd)
 {
   struct file_fd *f_fd;
-  int ret;
+  f_fd = find_file_fd (fd);
+  return file_length(f_fd->file);
+}
 
-  ret = -1;
-  if (fd == STDOUT_FILENO)
-  {
-    putbuf (buffer, length);
-    ret = length;
-  }
-  else
-  {
-    f_fd = find_file_fd (fd);
-    if (f_fd == NULL)
-      return -1;
-    ret = file_write (f_fd->file, buffer, length);
-  }
+static void
+sys_seek (int fd, unsigned position)
+{
+  struct file_fd *f_fd;
+  f_fd = find_file_fd (fd);
+  file_seek(f_fd->file, position);
+  return;
+}
 
-  return ret;
+static unsigned
+sys_tell (int fd)
+{
+  struct file_fd *f_fd;
+  f_fd = find_file_fd (fd);
+  return file_tell(f_fd->file); 
+  
 }
 
 static int
