@@ -105,6 +105,8 @@ start_process (void *f_name)
 
   if (success)
     {
+      thread_current ()->file = filesys_open(file_name);
+      file_deny_write (thread_current ()->file);
       if_.esp -= fn_len + 1;
       memcpy (if_.esp, file_name, fn_len +1);
       fn_real_start = if_.esp;

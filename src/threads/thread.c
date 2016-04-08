@@ -290,6 +290,7 @@ thread_exit (void)
   ASSERT (!intr_context ());
 
 #ifdef USERPROG
+  file_close(thread_current ()->file);
   sema_up (&thread_current ()->wait_child);
   thread_current ()->wait_parent = true;
   process_exit ();

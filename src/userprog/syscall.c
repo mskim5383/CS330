@@ -17,6 +17,7 @@ static int sys_exit (int);
 static pid_t sys_exec (const char *);
 static int sys_wait (pid_t);
 static bool sys_create (const char *, unsigned);
+static bool sys_remove (const char *);
 static int sys_open (const char *);
 static int sys_close (int);
 static int sys_read (int, void *, unsigned);
@@ -72,6 +73,9 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_CREATE:
       ret = sys_create(*(p + 1), *(p + 2));
+      break;
+    case SYS_REMOVE:
+      ret = sys_remove(*(p + 1));
       break;
     case SYS_OPEN:
       ret = sys_open (*(p + 1));
@@ -158,6 +162,14 @@ sys_create (const char *file, unsigned initial_size)
   if (file == NULL)
     return sys_exit (-1);
   return filesys_create (file, initial_size);
+}
+
+static bool
+sys_remove (const char *file)
+{
+  if (file == NULL)
+    return sys_exit (-1);
+  return filesys_remove (file);
 }
 
 static int
