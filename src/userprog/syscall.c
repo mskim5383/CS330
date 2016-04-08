@@ -18,6 +18,7 @@ static pid_t sys_exec (const char *);
 static int sys_wait (pid_t);
 static int sys_open (const char *);
 static int sys_close (int);
+static int sys_read (int, void *, unsigned);
 
 static int allocate_fd ();
 static struct file_fd *find_file_fd (int);
@@ -70,6 +71,9 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_CLOSE:
       ret = sys_close (*(p + 1));
+      break;
+    case SYS_READ:
+      ret = sys_read (*(p + 1), *(p + 2), *(p + 3));
       break;
   }
 
@@ -152,6 +156,30 @@ sys_close (int fd)
     free (f_fd);
   }
   return 0;
+}
+
+static int
+sys_read (int fd, void *buffer, unsigned size)
+{
+  struct file_fd *f_fd;
+  int ret, i;
+  
+  ret = -1;
+
+  if (fd == STDIN_FILENO)
+  {
+    for (i = 0; i < size; i++)
+      *(char *)(buffer + i) = input_getc (); 
+    ret = size;
+  }
+  else
+  {
+    f_fd = find_file_fd (fd);
+    if (f_fd == NULL)
+      return -1;
+    ret = file_read (f_fd->file, buffer, size);
+  }
+  return ret;
 }
 
 static int
