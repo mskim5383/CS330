@@ -16,6 +16,7 @@ static int sys_halt (void);
 static int sys_exit (int);
 static pid_t sys_exec (const char *);
 static int sys_wait (pid_t);
+static bool sys_create (const char *, unsigned);
 static int sys_open (const char *);
 static int sys_close (int);
 static int sys_read (int, void *, unsigned);
@@ -66,6 +67,9 @@ syscall_handler (struct intr_frame *f)
     case SYS_WAIT:
       ret = sys_wait (*(p + 1));
       break;
+    case SYS_CREATE:
+      ret = sys_create(*(p + 1), *(p + 2));
+      break;
     case SYS_OPEN:
       ret = sys_open (*(p + 1));
       break;
@@ -82,18 +86,6 @@ syscall_handler (struct intr_frame *f)
   return;
 }
 
-
-static int
-sys_write (int fd, const void *buffer, unsigned length)
-{
-  int ret;
-
-  ret = -1;
-  if (fd != STDIN_FILENO)
-    putbuf (buffer, length);
-
-  return ret;
-}
 
 static int
 sys_halt (void)
@@ -120,6 +112,14 @@ static int
 sys_wait (pid_t pid)
 {
   return process_wait(pid);
+}
+
+static bool
+sys_create (const char *file, unsigned initial_size)
+{
+  if (file == NULL)
+    return sys_exit (-1);
+  return filesys_create (file, initial_size);
 }
 
 static int
@@ -179,6 +179,29 @@ sys_read (int fd, void *buffer, unsigned size)
       return -1;
     ret = file_read (f_fd->file, buffer, size);
   }
+  return ret;
+}
+
+static int
+sys_write (int fd, const void *buffer, unsigned length)
+{
+  struct file_fd *f_fd;
+  int ret;
+
+  ret = -1;
+  if (fd == STDOUT_FILENO)
+  {
+    putbuf (buffer, length);
+    ret = length;
+  }
+  else
+  {
+    f_fd = find_file_fd (fd);
+    if (f_fd == NULL)
+      return -1;
+    ret = file_write (f_fd->file, buffer, length);
+  }
+
   return ret;
 }
 
