@@ -5,6 +5,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/synch.h"
+#include "threads/vaddr.h"
 #include "devices/input.h"
 #include "userprog/process.h"
 #include "filesys/filesys.h"
@@ -17,6 +18,7 @@ static int sys_exit (int);
 static pid_t sys_exec (const char *);
 static int sys_wait (pid_t);
 static bool sys_create (const char *, unsigned);
+static bool sys_remove (const char *);
 static int sys_open (const char *);
 static int sys_close (int);
 static int sys_read (int, void *, unsigned);
@@ -26,6 +28,10 @@ static unsigned sys_tell (int);
 
 static int allocate_fd ();
 static struct file_fd *find_file_fd (int);
+static int get_user (const uint8_t *);
+static bool put_user (uint8_t *, uint8_t);
+static bool pointer_checkvalid (void *, uint8_t);
+static bool string_checkvalid (void *);
 
 struct file_fd
 {
@@ -51,8 +57,11 @@ syscall_handler (struct intr_frame *f)
 {
   int *p;
   int ret;
-
   p = f->esp;
+  if (!pointer_checkvalid (p,4))
+    sys_exit (-1);
+  if ((!is_user_vaddr (p + 1) && !is_user_vaddr (p + 2) && !is_user_vaddr (p + 3)))
+    sys_exit (-1);
   switch (*p)
   {
     case SYS_WRITE:
@@ -72,6 +81,9 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_CREATE:
       ret = sys_create(*(p + 1), *(p + 2));
+      break;
+    case SYS_REMOVE:
+      ret = sys_remove(*(p + 1));
       break;
     case SYS_OPEN:
       ret = sys_open (*(p + 1));
@@ -116,6 +128,8 @@ sys_write (int fd, const void *buffer, unsigned length)
     f_fd = find_file_fd (fd);
     if (f_fd == NULL)
       return -1;
+    if(!pointer_checkvalid(buffer,1) || !pointer_checkvalid(buffer+length, 1))
+      sys_exit (-1);
     ret = file_write (f_fd->file, buffer, length);
   }
 
@@ -131,6 +145,10 @@ sys_halt (void)
 static int
 sys_exit (int status)
 {
+  while (!list_empty(&thread_current ()->file_list))
+    sys_close (list_entry (list_begin (&thread_current ()->file_list),
+          struct file_fd, elem)->fd);
+
   thread_current ()->exit_status = status;
   sema_up (&thread_current ()->wait_child);
   thread_exit ();
@@ -140,6 +158,8 @@ sys_exit (int status)
 static pid_t
 sys_exec (const char *cmd_line)
 {
+  if(!pointer_checkvalid(cmd_line, 4) || !string_checkvalid(cmd_line))
+    sys_exit (-1);
   return process_execute (cmd_line);
 } 
 
@@ -152,14 +172,26 @@ sys_wait (pid_t pid)
 static bool
 sys_create (const char *file, unsigned initial_size)
 {
+  if(!pointer_checkvalid(file, 4) || !string_checkvalid(file))
+    sys_exit (-1);
+  if (file == NULL)
+    sys_exit (-1);
+  return filesys_create (file, initial_size);
+}
+
+static bool
+sys_remove (const char *file)
+{
   if (file == NULL)
     return sys_exit (-1);
-  return filesys_create (file, initial_size);
+  return filesys_remove (file);
 }
 
 static int
 sys_open (const char *file)
 {
+  if(!pointer_checkvalid(file, 4) || !string_checkvalid(file))
+    sys_exit(-1);
   struct file *f;
   struct file_fd *f_fd;
   int fd;
@@ -212,6 +244,8 @@ sys_read (int fd, void *buffer, unsigned size)
     f_fd = find_file_fd (fd);
     if (f_fd == NULL)
       return -1;
+    if(!pointer_checkvalid(buffer, 1) || !pointer_checkvalid(buffer + size, 1))
+      sys_exit(-1);
     ret = file_read (f_fd->file, buffer, size);
   }
   return ret;
@@ -270,4 +304,57 @@ find_file_fd (int fd)
     }
   }
   return NULL;
+}
+
+static int
+get_user (const uint8_t *uaddr)
+{
+  if(!is_user_vaddr(uaddr))
+    return -1;
+  int result;
+  asm ("movl $1f, %0; movzbl %1, %0; 1:"
+      : "=&a" (result) : "m" (*uaddr));
+  return result;
+}
+
+static bool
+put_user (uint8_t *udst, uint8_t byte)
+{
+  if(!is_user_vaddr(udst))
+    return false;
+  int error_code;
+  asm ("movl $1f, %0; movb %b2, %1; 1:"
+      : "=&a" (error_code), "=m" (*udst) : "q" (byte));
+  return error_code != -1;
+}
+
+static bool
+pointer_checkvalid (void * ptr, uint8_t byte)
+{
+  int i;
+  for(i = 0; i <byte; i++)
+  {
+    if (get_user(((uint8_t*)(ptr))+i) == -1)
+      return false;
+  }
+  return true;
+}
+
+static bool
+string_checkvalid (void * ptr)
+{
+  int ch = -1;
+  while(ch != '\0')
+  {
+    ch = get_user((uint8_t*)ptr++);
+    if(ch == -1)
+      return false;
+  }
+  return true;
+}
+
+void
+sys_exit_extern (int status)
+{
+  sys_exit(status);
 }

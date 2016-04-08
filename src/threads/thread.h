@@ -102,6 +102,7 @@ struct thread
     bool wait_parent;
     struct list children;
     int exit_status;
+    struct file *file;
 
     struct list file_list;
 #endif
