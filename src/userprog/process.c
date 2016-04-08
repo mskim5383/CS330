@@ -157,8 +157,10 @@ process_wait (tid_t child_tid)
   sema_down (&child->wait_child);
   ret = child->exit_status;
   child->exit_status = -2;
-  printf("%s: exit(%d)\n", child->name, ret);
-  sema_up (&child->wait_parent);
+  list_remove (&child->elem_child);
+  printf ("%s: exit(%d)\n", child->name, ret);
+  while (child->status == THREAD_BLOCKED)
+    thread_unblock (child);
   return ret;
 }
 
@@ -168,6 +170,13 @@ process_exit (void)
 {
   struct thread *curr = thread_current ();
   uint32_t *pd;
+
+  if (curr->parent != NULL)
+  {
+    intr_disable ();
+    thread_block ();
+    intr_enable ();
+  }
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */

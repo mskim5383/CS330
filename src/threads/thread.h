@@ -98,7 +98,8 @@ struct thread
     uint32_t *pagedir;                  /* Page directory. */
     struct list_elem elem_child;
     struct semaphore wait_child;
-    struct semaphore wait_parent;
+    struct thread *parent;
+    bool wait_parent;
     struct list children;
     int exit_status;
 #endif

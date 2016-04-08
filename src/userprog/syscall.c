@@ -4,11 +4,14 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "devices/input.h"
+#include "userprog/process.h"
 
 static void syscall_handler (struct intr_frame *);
 static int sys_write (int , const void *, unsigned);
 static int sys_halt (void);
 static int sys_exit (int);
+static pid_t sys_exec (const char *);
+static int sys_wait (pid_t);
 
 
 void
@@ -34,6 +37,12 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_EXIT:
       ret = sys_exit (*(p + 1));
+      break;
+    case SYS_EXEC:
+      ret = sys_exec (*(p + 1));
+      break;
+    case SYS_WAIT:
+      ret = sys_wait (*(p + 1));
       break;
   }
 
@@ -68,4 +77,14 @@ sys_exit (int status)
   sema_up (&thread_current ()->wait_child);
   thread_exit ();
   return -1;
+}
+
+static pid_t sys_exec (const char *cmd_line)
+{
+  return process_execute (cmd_line);
+} 
+
+static int sys_wait (pid_t pid)
+{
+  return process_wait(pid);
 }

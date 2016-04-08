@@ -200,12 +200,13 @@ thread_create (const char *name, int priority,
   sf = alloc_frame (t, sizeof *sf);
   sf->eip = switch_entry;
 
-  /* Add to run queue. */
-  thread_unblock (t);
-
 #ifdef USERPROG
   list_push_back (&thread_current ()->children, &t->elem_child);
+  t->parent = thread_current ();
 #endif
+
+  /* Add to run queue. */
+  thread_unblock (t);
 
   return tid;
 }
@@ -290,7 +291,7 @@ thread_exit (void)
 
 #ifdef USERPROG
   sema_up (&thread_current ()->wait_child);
-  sema_down (&thread_current ()->wait_parent);
+  thread_current ()->wait_parent = true;
   process_exit ();
 #endif
 
@@ -469,8 +470,9 @@ init_thread (struct thread *t, const char *name, int priority)
 
 #ifdef USERPROG
   sema_init (&t->wait_child, 0);
-  sema_init (&t->wait_parent, 0);
+  t->wait_parent = false;
   list_init (&t->children);
+  t->exit_status = -3;
 #endif
 }
 
