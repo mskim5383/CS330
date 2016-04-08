@@ -8,6 +8,8 @@
 static void syscall_handler (struct intr_frame *);
 static int sys_write (int , const void *, unsigned);
 static int sys_halt (void);
+static int sys_exit (int);
+
 
 void
 syscall_init (void) 
@@ -21,15 +23,17 @@ syscall_handler (struct intr_frame *f)
   int *p;
   int ret;
 
-  printf ("system call!\n");
   p = f->esp;
   switch (*p)
   {
     case SYS_WRITE:
-      ret = sys_write(*(p + 1), *(p + 2), *(p + 3));
+      ret = sys_write (*(p + 1), *(p + 2), *(p + 3));
       break;
     case SYS_HALT:
-      ret = sys_halt();
+      ret = sys_halt ();
+      break;
+    case SYS_EXIT:
+      ret = sys_exit (*(p + 1));
       break;
   }
 
@@ -55,4 +59,13 @@ static int
 sys_halt (void)
 {
   power_off ();
+}
+
+static int
+sys_exit (int status)
+{
+  thread_current ()->exit_status = status;
+  sema_up (&thread_current ()->wait_child);
+  thread_exit ();
+  return -1;
 }

@@ -17,6 +17,7 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -143,11 +144,22 @@ start_process (void *f_name)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  int i = 10000000;
-  while (i--);
-  return -1;
+  struct thread *cur = thread_current ();
+  struct thread *child = thread_get_from_tid (child_tid);
+  int ret;
+
+  if (child == NULL)
+    return -1;
+  if (child->exit_status == -2)
+    return -1;
+  sema_down (&child->wait_child);
+  ret = child->exit_status;
+  child->exit_status = -2;
+  printf("%s: exit(%d)\n", child->name, ret);
+  sema_up (&child->wait_parent);
+  return ret;
 }
 
 /* Free the current process's resources. */

@@ -203,6 +203,10 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+#ifdef USERPROG
+  list_push_back (&thread_current ()->children, &t->elem_child);
+#endif
+
   return tid;
 }
 
@@ -285,6 +289,8 @@ thread_exit (void)
   ASSERT (!intr_context ());
 
 #ifdef USERPROG
+  sema_up (&thread_current ()->wait_child);
+  sema_down (&thread_current ()->wait_parent);
   process_exit ();
 #endif
 
@@ -358,6 +364,22 @@ thread_get_recent_cpu (void)
   /* Not yet implemented. */
   return 0;
 }
+
+struct thread *
+thread_get_from_tid (tid_t tid)
+{
+  struct thread *cur = thread_current ();
+  struct thread *ret;
+  struct list_elem *e;
+  for (e = list_begin (&cur->children); e != list_end (&cur->children); e = list_next (e))
+  {
+    ret = list_entry (e, struct thread, elem_child);
+    if (ret->tid == tid)
+      return ret;
+  }
+  return NULL;
+}
+  
 
 /* Idle thread.  Executes when no other thread is ready to run.
 
@@ -444,6 +466,12 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+
+#ifdef USERPROG
+  sema_init (&t->wait_child, 0);
+  sema_init (&t->wait_parent, 0);
+  list_init (&t->children);
+#endif
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
