@@ -102,11 +102,22 @@ syscall_handler (struct intr_frame *f)
 static int
 sys_write (int fd, const void *buffer, unsigned length)
 {
+  struct file_fd *f_fd;
   int ret;
-
+  
   ret = -1;
-  if (fd != STDIN_FILENO)
+  if (fd == STDOUT_FILENO)
+  {
     putbuf (buffer, length);
+    ret = length;
+  }
+  else
+  {
+    f_fd = find_file_fd (fd);
+    if (f_fd == NULL)
+      return -1;
+    ret = file_write (f_fd->file, buffer, length);
+  }
 
   return ret;
 }
