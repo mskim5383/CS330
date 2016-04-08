@@ -31,6 +31,7 @@ process_execute (const char *file_name)
 {
   char *fn_copy, *fn_tmp, *save_ptr;;
   tid_t tid;
+  struct thread *t;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -48,6 +49,20 @@ process_execute (const char *file_name)
   tid = thread_create (fn_tmp, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
+  else
+  {
+    t = thread_get_from_tid (tid);
+    sema_down (&t->wait_child);
+    if (t->exit_status == -1)
+    {
+      tid = TID_ERROR;
+      sema_up (&t->wait_child);
+      process_wait (t->tid);
+    }
+    else
+      sema_up (&t->wait_child);
+  }
+
   return tid;
 }
 
@@ -105,13 +120,21 @@ start_process (void *f_name)
       *(int *)(if_.esp) = argc;
       if_.esp -= 4;
       *(int *)(if_.esp) = 0;
+      sema_up (&thread_current ()->wait_child);
+      sema_down (&thread_current ()->wait_child);
     }
-
+  else
+  {
+    thread_current ()->exit_status = -1;
+    sema_up (&thread_current ()->wait_child);
+    sema_down (&thread_current ()->wait_child);
   /* If load failed, quit. */
-  palloc_free_page (file_name);
-  if (!success) 
     thread_exit ();
+  }
 
+
+
+  palloc_free_page (file_name);
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
