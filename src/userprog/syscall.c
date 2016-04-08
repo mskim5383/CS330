@@ -131,6 +131,9 @@ sys_halt (void)
 static int
 sys_exit (int status)
 {
+  while (!list_empty(&thread_current ()->file_list))
+    sys_close (list_entry (list_begin (&thread_current ()->file_list),
+                                       struct file_fd, elem)->fd);
   thread_current ()->exit_status = status;
   sema_up (&thread_current ()->wait_child);
   thread_exit ();
