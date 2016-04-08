@@ -102,6 +102,8 @@ struct thread
     bool wait_parent;
     struct list children;
     int exit_status;
+
+    struct list file_list;
 #endif
 
     /* Owned by thread.c. */

@@ -473,6 +473,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->wait_parent = false;
   list_init (&t->children);
   t->exit_status = -3;
+  list_init (&t->file_list);
 #endif
 }
 
