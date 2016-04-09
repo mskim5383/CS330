@@ -117,6 +117,7 @@ sys_write (int fd, const void *buffer, unsigned length)
   int ret;
   
   ret = -1;
+  lock_acquire (&fd_lock);
   if (fd == STDOUT_FILENO)
   {
     putbuf (buffer, length);
@@ -126,11 +127,14 @@ sys_write (int fd, const void *buffer, unsigned length)
   {
     f_fd = find_file_fd (fd);
     if (f_fd == NULL)
-      return -1;
+      goto done;
     if(!pointer_checkvalid(buffer,1) || !pointer_checkvalid(buffer+length, 1))
       sys_exit (-1);
     ret = file_write (f_fd->file, buffer, length);
   }
+
+done:
+  lock_release (&fd_lock);
 
   return ret;
 }
@@ -210,7 +214,6 @@ sys_open (const char *file)
 static int
 sys_close (int fd)
 {
-  struct list_elem *e;
   struct file_fd *f_fd;
 
   f_fd = find_file_fd (fd);
