@@ -31,7 +31,6 @@ static struct file_fd *find_file_fd (int);
 static int get_user (const uint8_t *);
 static bool put_user (uint8_t *, uint8_t);
 static bool pointer_checkvalid (void *, uint8_t);
-static bool string_checkvalid (void *);
 
 struct file_fd
 {
@@ -157,7 +156,7 @@ sys_exit (int status)
 static pid_t
 sys_exec (const char *cmd_line)
 {
-  if(!pointer_checkvalid(cmd_line, 4) || !string_checkvalid(cmd_line))
+  if (!pointer_checkvalid (cmd_line, strnlen(cmd_line, 128)))
     sys_exit (-1);
   return process_execute (cmd_line);
 } 
@@ -171,7 +170,7 @@ sys_wait (pid_t pid)
 static bool
 sys_create (const char *file, unsigned initial_size)
 {
-  if(!pointer_checkvalid(file, 4) || !string_checkvalid(file))
+  if(!pointer_checkvalid(file, strnlen(file, 128)))
     sys_exit (-1);
   if (file == NULL)
     sys_exit (-1);
@@ -189,7 +188,7 @@ sys_remove (const char *file)
 static int
 sys_open (const char *file)
 {
-  if(!pointer_checkvalid(file, 4) || !string_checkvalid(file))
+  if(!pointer_checkvalid(file, strnlen(file, 128)))
     sys_exit(-1);
   struct file *f;
   struct file_fd *f_fd;
@@ -334,19 +333,6 @@ pointer_checkvalid (void * ptr, uint8_t byte)
   for(i = 0; i <byte; i++)
   {
     if (get_user(((uint8_t*)(ptr))+i) == -1)
-      return false;
-  }
-  return true;
-}
-
-static bool
-string_checkvalid (void * ptr)
-{
-  int ch = -1;
-  while(ch != '\0')
-  {
-    ch = get_user((uint8_t*)ptr++);
-    if(ch == -1)
       return false;
   }
   return true;
