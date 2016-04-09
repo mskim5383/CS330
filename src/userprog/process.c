@@ -135,7 +135,6 @@ start_process (void *f_name)
   }
 
 
-
   palloc_free_page (file_name);
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
