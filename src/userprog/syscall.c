@@ -57,9 +57,8 @@ syscall_handler (struct intr_frame *f)
   int *p;
   int ret;
   p = f->esp;
-  if (!pointer_checkvalid (p,4))
-    sys_exit (-1);
-  if ((!is_user_vaddr (p + 1) && !is_user_vaddr (p + 2) && !is_user_vaddr (p + 3)))
+
+  if (!pointer_checkvalid (p, 12))
     sys_exit (-1);
   switch (*p)
   {
