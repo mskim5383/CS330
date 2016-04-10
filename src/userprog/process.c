@@ -77,7 +77,7 @@ start_process (void *f_name)
 
   int argc, i;
   int *argv_save;
-  size_t fn_len;;
+  size_t fn_len;
   char *token, *save_ptr;
   void *fn_real_start;
 
