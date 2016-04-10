@@ -124,18 +124,21 @@ start_process (void *f_name)
       *(int *)(if_.esp) = 0;
       sema_up (&thread_current ()->wait_child);
       sema_down (&thread_current ()->wait_child);
+      free (argv_save);
+      palloc_free_page (file_name);
     }
   else
   {
     thread_current ()->exit_status = -1;
     sema_up (&thread_current ()->wait_child);
     sema_down (&thread_current ()->wait_child);
+    free (argv_save);
+    palloc_free_page (file_name);
   /* If load failed, quit. */
     thread_exit ();
   }
 
 
-  palloc_free_page (file_name);
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
