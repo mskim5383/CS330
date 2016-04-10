@@ -116,7 +116,6 @@ sys_write (int fd, const void *buffer, unsigned length)
   int ret;
   
   ret = -1;
-  lock_acquire (&fd_lock);
   if (fd == STDOUT_FILENO)
   {
     putbuf (buffer, length);
@@ -126,14 +125,14 @@ sys_write (int fd, const void *buffer, unsigned length)
   {
     f_fd = find_file_fd (fd);
     if (f_fd == NULL)
-      goto done;
+      return ret;
     if(!pointer_checkvalid(buffer,1) || !pointer_checkvalid(buffer+length, 1))
       sys_exit (-1);
+    lock_acquire (&fd_lock);
     ret = file_write (f_fd->file, buffer, length);
+    lock_release (&fd_lock);
   }
 
-done:
-  lock_release (&fd_lock);
 
   return ret;
 }
@@ -173,19 +172,27 @@ sys_wait (pid_t pid)
 static bool
 sys_create (const char *file, unsigned initial_size)
 {
+  bool ret;
   if(!pointer_checkvalid(file, strnlen(file, 128)))
     sys_exit (-1);
   if (file == NULL)
     sys_exit (-1);
-  return filesys_create (file, initial_size);
+  lock_acquire (&fd_lock);
+  ret = filesys_create (file, initial_size);
+  lock_release (&fd_lock);
+  return ret;
 }
 
 static bool
 sys_remove (const char *file)
 {
+  bool ret;
   if (file == NULL)
     return sys_exit (-1);
-  return filesys_remove (file);
+  lock_acquire (&fd_lock);
+  ret = filesys_remove (file);
+  lock_release (&fd_lock);
+  return ret;
 }
 
 static int
@@ -199,7 +206,9 @@ sys_open (const char *file)
 
   if (file == NULL)
     return -1;
+  lock_acquire (&fd_lock);
   f = filesys_open (file);
+  lock_release (&fd_lock);
   if (f == NULL)
     return -1;
   fd = allocate_fd ();
@@ -219,7 +228,9 @@ sys_close (int fd)
   if (f_fd != NULL)
   {
     list_remove (&f_fd->elem);
+    lock_acquire (&fd_lock);
     file_close (f_fd->file);
+    lock_release (&fd_lock);
     free (f_fd);
   }
   return 0;
@@ -235,8 +246,10 @@ sys_read (int fd, void *buffer, unsigned size)
 
   if (fd == STDIN_FILENO)
   {
+    lock_acquire (&fd_lock);
     for (i = 0; i < size; i++)
       *(char *)(buffer + i) = input_getc (); 
+    lock_release (&fd_lock);
     ret = size;
   }
   else
@@ -246,7 +259,9 @@ sys_read (int fd, void *buffer, unsigned size)
       return -1;
     if(!pointer_checkvalid(buffer, 1) || !pointer_checkvalid(buffer + size, 1))
       sys_exit(-1);
+    lock_acquire (&fd_lock);
     ret = file_read (f_fd->file, buffer, size);
+    lock_release (&fd_lock);
   }
   return ret;
 }
