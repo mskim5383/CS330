@@ -293,6 +293,9 @@ thread_exit (void)
   file_close(thread_current ()->file);
   sema_up (&thread_current ()->wait_child);
   thread_current ()->wait_parent = true;
+  while (!list_empty(&thread_current ()->children))
+    list_entry (list_begin (&thread_current ()->children),
+                            struct thread, elem_child)->parent = NULL;
   process_exit ();
 #endif
 
