@@ -17,6 +17,8 @@ struct hash swap_hash;
 struct disk *swap_disk;
 struct lock swap_lock;
 size_t disk_count;
+int in_count;
+int out_count;
 
 struct sector_hash
 {
@@ -28,10 +30,13 @@ struct sector_hash
 void swap_init (void)
 {
   swap_disk = disk_get(1, 1);
-  swap_pool = bitmap_create ((disk_count = disk_size (swap_disk) / 8));
+  swap_pool = bitmap_create ((disk_count = disk_size (swap_disk) / 8 - 10));
   bitmap_set_all (swap_pool, true);
   hash_init (&swap_hash, swap_hash_func, swap_less, NULL);
   lock_init (&swap_lock);
+  
+  in_count = 0;
+  out_count = 0;
 }
 
 void swap_out (void)
@@ -44,6 +49,7 @@ void swap_out (void)
 
   //printf ("swap out\n");
   
+  out_count++;
   lock_acquire (&swap_lock);
   f_e = frame_next_evict ();
   ASSERT (f_e != NULL);
@@ -51,7 +57,6 @@ void swap_out (void)
   frame_to_out (f_e);
 
   disk_idx = bitmap_scan_and_flip (swap_pool, 0, 1, true);
-  lock_release (&swap_lock);
 
   if (disk_idx == BITMAP_ERROR)
     PANIC ("swap panic");
@@ -65,6 +70,7 @@ void swap_out (void)
 
   kpage = f_e->kpage;
   *(f_e->pte) = *(f_e->pte) & ~PTE_P;
+  lock_release (&swap_lock);
 
   for (i = 0; i < 8; i++)
   {
@@ -86,19 +92,29 @@ bool swap_in (uint32_t *addr)
 
   //printf ("swap_in %p\n", addr);
 
+  in_count++;
   pte = lookup_page (thread_current ()->pagedir, addr, false);
 
   if (pte == NULL)
   {
-    //printf ("%p\n", addr);
+    printf ("swap_in %p\n", addr);
+    printf ("in: %d out: %d\n", in_count, out_count);
+    PANIC ("swap_in");
     return false;
   }
+
+
+  lock_acquire (&swap_lock);
   s_h.count = pte;
   h_e = hash_find (&swap_hash, &s_h.elem);
 
   if (h_e == NULL)
+  {
+    lock_release (&swap_lock);
     return false;
+  }
   hash_delete (&swap_hash, h_e);
+  lock_release (&swap_lock);
 
   f_e = frame_get_frame_entry (hash_entry (h_e, struct sector_hash, elem)->count);
 
@@ -125,6 +141,15 @@ bool swap_in (uint32_t *addr)
   return true;
 }
   
+void swap_acquire ()
+{
+  lock_acquire (&swap_lock);
+}
+
+void swap_release ()
+{
+  lock_release (&swap_lock);
+}
 
 
 

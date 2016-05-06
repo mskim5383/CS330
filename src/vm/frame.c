@@ -15,6 +15,7 @@ static bool page_less (const struct hash_elem *, const struct hash_elem *, void 
 static struct list frame_table;
 static struct list frame_table_out;
 static struct hash kpage_hash;
+static struct lock frame_alloc_lock;
 
 
 struct kpage_f_e
@@ -30,6 +31,7 @@ frame_init (void)
   list_init (&frame_table);
   list_init (&frame_table_out);
   hash_init (&kpage_hash, page_hash, page_less, NULL);
+  lock_init (&frame_alloc_lock);
 }
 
 uint8_t *
@@ -41,12 +43,15 @@ frame_get_page (enum palloc_flags flags, uint8_t *upage, bool writable)
   struct kpage_f_e k_f_e, *temp_k_f_e;
   struct hash_elem *h_e;
 
+  lock_acquire (&frame_alloc_lock);
   kpage = palloc_get_page (flags);
   while (kpage == NULL)
   {
     swap_out ();
     kpage = palloc_get_page (flags);
   }
+  lock_release (&frame_alloc_lock);
+
   if (!install_page (upage, kpage, writable)) 
   {
     palloc_free_page (kpage);

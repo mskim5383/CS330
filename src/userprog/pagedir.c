@@ -5,8 +5,10 @@
 #include "threads/init.h"
 #include "threads/pte.h"
 #include "threads/palloc.h"
+#include "threads/synch.h"
 #ifdef vm
 #include "vm/frame.h"
+#include "vm/swap.h"
 #endif
 
 static uint32_t *active_pd (void);
@@ -104,6 +106,7 @@ bool
 pagedir_set_page (uint32_t *pd, void *upage, void *kpage, bool writable)
 {
   uint32_t *pte;
+  bool ret;
 
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (pg_ofs (kpage) == 0);
@@ -111,16 +114,19 @@ pagedir_set_page (uint32_t *pd, void *upage, void *kpage, bool writable)
   ASSERT (vtop (kpage) >> PTSHIFT < ram_pages);
   ASSERT (pd != base_page_dir);
 
+  swap_acquire ();
   pte = lookup_page (pd, upage, true);
 
   if (pte != NULL) 
     {
       ASSERT ((*pte & PTE_P) == 0);
       *pte = pte_create_user (kpage, writable);
-      return true;
+      ret = true;
     }
   else
-    return false;
+    ret = false;
+  swap_release ();
+  return ret;
 }
 
 /* Looks up the physical address that corresponds to user virtual
@@ -131,14 +137,19 @@ void *
 pagedir_get_page (uint32_t *pd, const void *uaddr) 
 {
   uint32_t *pte;
+  void *ret;
 
   ASSERT (is_user_vaddr (uaddr));
   
+  swap_acquire ();
   pte = lookup_page (pd, uaddr, false);
+
   if (pte != NULL && (*pte & PTE_P) != 0)
-    return pte_get_page (*pte) + pg_ofs (uaddr);
+    ret = pte_get_page (*pte) + pg_ofs (uaddr);
   else
-    return NULL;
+    ret = NULL;
+  swap_release ();
+  return ret;
 }
 
 /* Marks user virtual page UPAGE "not present" in page
