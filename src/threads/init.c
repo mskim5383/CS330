@@ -31,6 +31,7 @@
 #endif
 #ifdef VM
 #include "vm/frame.h"
+#include "vm/swap.h"
 #endif
 #ifdef FILESYS
 #include "devices/disk.h"
@@ -90,7 +91,6 @@ main (void)
   palloc_init ();
   malloc_init ();
   paging_init ();
-  frame_init ();
 
   /* Segmentation. */
 #ifdef USERPROG
@@ -117,6 +117,11 @@ main (void)
   /* Initialize file system. */
   disk_init ();
   filesys_init (format_filesys);
+#endif
+
+#ifdef VM
+  frame_init ();
+  swap_init ();
 #endif
 
   printf ("Boot complete.\n");
