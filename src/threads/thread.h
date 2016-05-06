@@ -89,6 +89,10 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    int original_priority;
+    struct list holding_lock;
+    struct lock *locking;
+    bool locked;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -109,6 +113,9 @@ struct thread
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+
+    /* To save timer_slepp ticks */
+    int64_t timer_sleep_ticks;
   };
 
 /* If false (default), use round-robin scheduler.
@@ -142,6 +149,7 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+bool cmp_priority (const struct list_elem *, const struct list_elem *, void *);
 
 #ifdef USERPROG
 struct thread *thread_get_from_tid (tid_t);

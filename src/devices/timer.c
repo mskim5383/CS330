@@ -7,6 +7,7 @@
 #include "threads/io.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include <list.h>
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -29,6 +30,10 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 
+static struct list sleep_list;
+
+static bool cmp_thread_ticks (const struct list_elem *, const struct list_elem *, void *);
+
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
@@ -44,6 +49,8 @@ timer_init (void)
   outb (0x40, count >> 8);
 
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+
+  list_init(&sleep_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -97,10 +104,13 @@ void
 timer_sleep (int64_t ticks) 
 {
   int64_t start = timer_ticks ();
+  enum intr_level old_level;
 
-  ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  old_level = intr_disable ();
+  thread_current ()->timer_sleep_ticks = start + ticks;
+  list_push_back (&sleep_list, &thread_current ()->elem);
+  thread_block ();
+  intr_set_level (old_level);
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -136,8 +146,13 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
+  list_sort(&sleep_list, cmp_thread_ticks, NULL);
+  while (!list_empty(&sleep_list) && timer_ticks () >= list_entry (list_front (&sleep_list), struct thread, elem)->timer_sleep_ticks)
+    thread_unblock (list_entry (list_pop_front (&sleep_list), struct thread, elem));
+
   thread_tick ();
 }
+
 
 /* Returns true if LOOPS iterations waits for more than one timer
    tick, otherwise false. */
@@ -202,3 +217,14 @@ real_time_sleep (int64_t num, int32_t denom)
     }
 }
 
+static bool
+cmp_thread_ticks (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct thread *a_thread = list_entry (a, struct thread, elem);
+  struct thread *b_thread = list_entry (b, struct thread, elem);
+
+  if (a_thread->timer_sleep_ticks == b_thread->timer_sleep_ticks)
+    return (a_thread->priority > b_thread->priority);
+  else
+    return (a_thread->timer_sleep_ticks < b_thread->timer_sleep_ticks);
+}

@@ -208,6 +208,10 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  /* re-schedule */
+  if (priority > thread_get_priority ())
+    thread_yield ();
+
   return tid;
 }
 
@@ -312,15 +316,14 @@ thread_exit (void)
 void
 thread_yield (void) 
 {
-  struct thread *curr = thread_current ();
   enum intr_level old_level;
   
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
-  if (curr != idle_thread) 
-    list_push_back (&ready_list, &curr->elem);
-  curr->status = THREAD_READY;
+  if (thread_current () != idle_thread) 
+    list_push_back (&ready_list, &thread_current ()->elem);
+  thread_current ()->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
 }
@@ -329,7 +332,26 @@ thread_yield (void)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  enum intr_level old_level;
+  int old_priority = thread_get_priority ();
+  struct lock *highest_lock;
+  old_level = intr_disable ();
+
+  if (list_empty (&thread_current ()->holding_lock))
+    thread_current ()->priority = new_priority;
+  else
+  {
+    highest_lock = list_entry (list_min (&thread_current ()->holding_lock, cmp_lock, NULL), struct lock, elem);
+    if (highest_lock->highest_locked_thread_priority > new_priority)
+      thread_current ()->priority = highest_lock->highest_locked_thread_priority;
+    else
+      thread_current ()->priority = new_priority;
+  }
+  thread_current ()->original_priority = new_priority;
+  if (old_priority > new_priority)
+    thread_yield ();
+
+  intr_set_level (old_level);
 }
 
 /* Returns the current thread's priority. */
@@ -470,6 +492,9 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->original_priority = priority;
+  t->locking = NULL;
+  t->locked = false;
   t->magic = THREAD_MAGIC;
 
 #ifdef USERPROG
@@ -479,6 +504,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->exit_status = -3;
   list_init (&t->file_list);
 #endif
+  list_init (&t->holding_lock);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -502,10 +528,15 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
+  struct list_elem *elem;
   if (list_empty (&ready_list))
     return idle_thread;
   else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  {
+    elem = list_min (&ready_list, cmp_priority, NULL);
+    list_remove (elem);
+    return list_entry (elem, struct thread, elem);
+  }
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -594,3 +625,11 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+bool
+cmp_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct thread *a_thread = list_entry (a, struct thread, elem);
+  struct thread *b_thread = list_entry (b, struct thread, elem);
+  return a_thread->priority > b_thread->priority;
+}
