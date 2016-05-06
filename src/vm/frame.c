@@ -19,7 +19,7 @@ static struct hash kpage_hash;
 
 struct kpage_f_e
 {
-  uint8_t *kpage;
+  uint32_t *pte;
   struct frame_entry *frame_entry;
   struct hash_elem elem;
 };
@@ -38,7 +38,6 @@ frame_get_page (enum palloc_flags flags, uint8_t *upage, bool writable)
   uint32_t *pte;
   uint8_t *kpage;
   struct frame_entry *f_e;
-  struct pte_entry *p_e;
   struct kpage_f_e k_f_e, *temp_k_f_e;
   struct hash_elem *h_e;
 
@@ -54,27 +53,25 @@ frame_get_page (enum palloc_flags flags, uint8_t *upage, bool writable)
     return NULL;
   }
   pte = lookup_page (thread_current ()->pagedir, upage, true);
-  k_f_e.kpage = kpage;
+  k_f_e.pte = pte;
   h_e = hash_find (&kpage_hash, &k_f_e.elem);
   if (h_e == NULL)
   {
     f_e = (struct frame_entry *) malloc (sizeof (struct frame_entry));
     f_e->kpage = kpage;
+    f_e->pte = pte;
+    f_e->flags = flags;
     f_e->writable = writable;
-    list_init (&f_e->pte_list);
     temp_k_f_e = (struct kpage_f_e *) malloc (sizeof (struct kpage_f_e));
-    temp_k_f_e->kpage = kpage;
+    temp_k_f_e->pte = pte;
     temp_k_f_e->frame_entry = f_e;
     hash_insert (&kpage_hash, &temp_k_f_e->elem);
     list_push_back (&frame_table, &f_e->elem);
   }
   else
   {
-    f_e = hash_entry (h_e, struct kpage_f_e, elem)->frame_entry;
+    PANIC ("frame: already mapped");
   }
-  p_e = (struct pte_entry *) malloc (sizeof (struct pte_entry));
-  p_e->pte = pte;
-  list_push_back (&f_e->pte_list, &p_e->elem);
   return kpage;
 }
 
@@ -83,45 +80,32 @@ frame_free_page (uint32_t *pte)
 {
   struct kpage_f_e k_f_e, *temp_k_f_e;
   struct frame_entry *f_e;
-  struct pte_entry *p_e;
   struct hash_elem *h_e;
   struct list_elem *e;
-  uint8_t *page;
+  uint32_t *page;
 
-  page = pte_get_page(*pte);
 
-  k_f_e.kpage = page;
+  k_f_e.pte = pte;
   h_e = hash_find (&kpage_hash, &k_f_e.elem);
   if (h_e != NULL)
   {
     temp_k_f_e = hash_entry (h_e, struct kpage_f_e, elem);
     f_e = temp_k_f_e->frame_entry;
-    for (e = list_begin (&f_e->pte_list); e != list_end (&f_e->pte_list); e = list_next (e))
-    {
-      p_e = list_entry (e, struct pte_entry, elem);
-      if (p_e->pte == pte)
-      {
-        list_remove (&p_e->elem);
-        free (p_e);
-        break;
-      }
-    }
-    if (list_empty (&f_e->pte_list))
-    {
-      hash_delete (&kpage_hash, h_e);
-      list_remove (&f_e->elem);
-      free (f_e);
-      free (temp_k_f_e);
-      palloc_free_page (page);
-    }
+    page = f_e->kpage;
+    hash_delete (&kpage_hash, h_e);
+    list_remove (&f_e->elem);
+    free (f_e);
+    free (temp_k_f_e);
+    palloc_free_page (page);
   }
+  else
+    PANIC ("frame: already freed");
 }
 
 struct frame_entry *
 frame_next_evict ()
 {
   struct frame_entry *f_e, *temp_f_e;
-  struct pte_entry *p_e;
   struct list_elem *e, *e_pte;
   uint8_t *kpage = NULL;
   int accessed;
@@ -134,13 +118,8 @@ frame_next_evict ()
   while (f_e == NULL)
   {
     temp_f_e = list_entry (e, struct frame_entry, elem);
-    accessed = 0;
-    for (e_pte = list_begin (&temp_f_e->pte_list); e_pte != list_end (&temp_f_e->pte_list); e_pte = list_next (e_pte))
-    {
-      p_e = list_entry (e_pte, struct pte_entry, elem);
-      accessed |= *p_e->pte & PTE_A;
-      *p_e->pte &= ~PTE_A;
-    }
+    accessed = *temp_f_e->pte & PTE_A;
+    *temp_f_e->pte &= ~PTE_A;
     if (accessed == 0)
       f_e = temp_f_e;
     else
@@ -160,23 +139,28 @@ frame_hash_change (uint32_t *kpage, uint32_t *addr)
   struct kpage_f_e k_f_e, *temp_k_f_e;
   struct hash_elem *h_e;
 
-  k_f_e.kpage = kpage;
+  k_f_e.pte = addr;
   h_e = hash_find (&kpage_hash, &k_f_e.elem);
+
+  if (h_e == NULL)
+    PANIC ("frame: hash not exists");
 
   hash_delete (&kpage_hash, h_e);
   temp_k_f_e = hash_entry (h_e, struct kpage_f_e, elem);
-  temp_k_f_e->kpage = addr;
+  temp_k_f_e->pte = addr;
   hash_insert (&kpage_hash, &temp_k_f_e->elem);
 }
 
 struct frame_entry *
-frame_get_frame_entry (uint32_t *kpage)
+frame_get_frame_entry (uint32_t *pte)
 {
   struct kpage_f_e k_f_e, *temp_k_f_e;
   struct hash_elem *h_e;
 
-  k_f_e.kpage = kpage;
+  k_f_e.pte = pte;
   h_e = hash_find (&kpage_hash, &k_f_e.elem);
+  if (h_e == NULL)
+    PANIC ("frame: hash not exists");
   temp_k_f_e = hash_entry (h_e, struct kpage_f_e, elem);
   return temp_k_f_e->frame_entry;
 }
@@ -221,7 +205,7 @@ static unsigned
 page_hash (const struct hash_elem *p_, void *aux UNUSED)
 {
   const struct kpage_f_e *p = hash_entry (p_, struct kpage_f_e, elem);
-  return hash_bytes (&p->kpage, sizeof p->kpage);
+  return hash_bytes (&p->pte, sizeof p->pte);
 }
 
 static bool
@@ -230,6 +214,6 @@ page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNU
   const struct kpage_f_e *a = hash_entry (a_, struct kpage_f_e, elem);
   const struct kpage_f_e *b = hash_entry (b_, struct kpage_f_e, elem);
 
-  return a->kpage < b->kpage;
+  return a->pte < b->pte;
 }
 

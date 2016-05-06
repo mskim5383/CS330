@@ -16,7 +16,6 @@ struct bitmap *swap_pool;
 struct hash swap_hash;
 struct disk *swap_disk;
 struct lock swap_lock;
-uint32_t swap_count;
 size_t disk_count;
 
 struct sector_hash
@@ -33,16 +32,14 @@ void swap_init (void)
   bitmap_set_all (swap_pool, true);
   hash_init (&swap_hash, swap_hash_func, swap_less, NULL);
   lock_init (&swap_lock);
-  swap_count = 0;
 }
 
 void swap_out (void)
 {
   struct frame_entry *f_e;
-  struct pte_entry *p_e;
   struct sector_hash *s_h;
   struct list_elem *e;
-  uint32_t c, i, kpage;
+  uint32_t i, kpage;
   size_t disk_idx;
 
   //printf ("swap out\n");
@@ -53,7 +50,6 @@ void swap_out (void)
 
   frame_to_out (f_e);
 
-  c = ++swap_count;
   disk_idx = bitmap_scan_and_flip (swap_pool, 0, 1, true);
   lock_release (&swap_lock);
 
@@ -62,21 +58,13 @@ void swap_out (void)
 
 
   s_h = (struct sector_hash *) malloc (sizeof (struct sector_hash));
-  s_h->count = c;
+  s_h->count = f_e->pte;
   s_h->sector = disk_idx;
   hash_insert (&swap_hash, &s_h->elem);
 
-  frame_hash_change (f_e->kpage, c << PGBITS);
 
   kpage = f_e->kpage;
-  f_e->kpage = c << PGBITS;
-  for (e = list_begin (&f_e->pte_list); e != list_end (&f_e->pte_list); e = list_next (e))
-  {
-    p_e = list_entry (e, struct pte_entry, elem);
-    *p_e->pte = (uint32_t) *p_e->pte & ~PTE_P;
-    *p_e->pte = (uint32_t) *p_e->pte & PGMASK;
-    *p_e->pte = (uint32_t) *p_e->pte | (c << PGBITS);
-  }
+  *(f_e->pte) = *(f_e->pte) & ~PTE_P;
 
   for (i = 0; i < 8; i++)
   {
@@ -89,7 +77,6 @@ void swap_out (void)
 bool swap_in (uint32_t *addr)
 {
   struct frame_entry *f_e;
-  struct pte_entry *p_e;
   struct sector_hash s_h;
   struct hash_elem *h_e;
   struct list_elem *e;
@@ -103,43 +90,35 @@ bool swap_in (uint32_t *addr)
 
   if (pte == NULL)
   {
-    printf ("%p\n", addr);
-    return true;
+    //printf ("%p\n", addr);
+    return false;
   }
-  s_h.count = (uint32_t) *pte >> PGBITS;
+  s_h.count = pte;
   h_e = hash_find (&swap_hash, &s_h.elem);
 
   if (h_e == NULL)
     return false;
+  hash_delete (&swap_hash, h_e);
 
-  kpage = palloc_get_page (PAL_USER);
+  f_e = frame_get_frame_entry (hash_entry (h_e, struct sector_hash, elem)->count);
+
+  kpage = palloc_get_page (f_e->flags);
   while (kpage == NULL)
   {
     swap_out ();
-    kpage = palloc_get_page (PAL_USER);
+    kpage = palloc_get_page (f_e->flags);
   }
-
-
 
   disk_idx = hash_entry (h_e, struct sector_hash, elem)->sector;
   for (i = 0; i < 8; i++)
     disk_read (swap_disk, disk_idx * 8 + i, (uint32_t) kpage + i * 512);
 
-  frame_hash_change (hash_entry (h_e, struct sector_hash, elem)->count << PGBITS, kpage);
-  hash_delete (&swap_hash, h_e);
   free (hash_entry (h_e, struct sector_hash, elem));
 
-  f_e = frame_get_frame_entry (kpage);
   f_e->kpage = kpage;
-  for (e = list_begin (&f_e->pte_list); e != list_end (&f_e->pte_list); e = list_next (e))
-  {
-    p_e = list_entry (e, struct pte_entry, elem);
-    *p_e->pte = pte_create_user (kpage, f_e->writable);
-  }
+  *(f_e->pte) = pte_create_user (kpage, f_e->writable);
 
   frame_to_in (f_e);
-
-
   
 
   bitmap_flip (swap_pool, disk_idx);

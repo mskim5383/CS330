@@ -19,7 +19,7 @@ struct frame_entry
   uint32_t *kpage;
   uint32_t *pte;
   struct list_elem elem;
-  enum palloc_flag flags;
+  enum palloc_flags flags;
   bool writable;
 };
 
