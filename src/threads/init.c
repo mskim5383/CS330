@@ -29,6 +29,9 @@
 #else
 #include "tests/threads/tests.h"
 #endif
+#ifdef VM
+#include "vm/spage.h"
+#endif
 #ifdef FILESYS
 #include "devices/disk.h"
 #include "filesys/filesys.h"
@@ -109,10 +112,14 @@ main (void)
   serial_init_queue ();
   timer_calibrate ();
 
+
 #ifdef FILESYS
   /* Initialize file system. */
   disk_init ();
   filesys_init (format_filesys);
+#endif
+#ifdef VM
+  spage_init ();
 #endif
 
   printf ("Boot complete.\n");

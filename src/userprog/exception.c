@@ -4,6 +4,9 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
+#include "userprog/pagedir.h"
+#include "vm/spage.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -125,7 +128,7 @@ page_fault (struct intr_frame *f)
   bool not_present;  /* True: not-present page, false: writing r/o page. */
   bool write;        /* True: access was write, false: access was read. */
   bool user;         /* True: access by user, false: access by kernel. */
-  void *fault_addr;  /* Fault address. */
+  void *fault_addr, *diff;  /* Fault address. */
 
   /* Obtain faulting address, the virtual address that was
      accessed to cause the fault.  It may point to code or to
@@ -148,8 +151,26 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
+
+  //printf ("fault %p segment %p\n", fault_addr, thread_current ()->segment);
   if(user || not_present)
+  {
+    if (write && (((uint32_t ) fault_addr) < thread_current ()->segment))
+      sys_exit_extern (-1);
+    if (spage_get_page (pg_round_down (fault_addr)))
+      return;
+    if (fault_addr < (uint32_t) PHYS_BASE - (1 << 23))
+      sys_exit_extern (-1);
+    diff = f->esp - fault_addr;
+    //printf ("esp %p fault_addr %p stack %p diff %p\n", f->esp, fault_addr, thread_current ()->spage_stack, fault_addr - f->esp);
+    if (diff == -8 || diff == -4 || diff == 0|| diff == 4 || diff == 32)
+    {
+      //printf ("stack growth!\n");
+      if (spage_palloc ((thread_current ()->spage_stack -= PGSIZE), PAL_USER | PAL_ZERO, true))
+        return;
+    }
     sys_exit_extern (-1);
+  }
 
 
   f->eip = (void *)f->eax;

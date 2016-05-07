@@ -106,6 +106,11 @@ struct thread
 
     struct list file_list;
 #endif
+#ifdef VM
+    struct list spagedir;
+    void *spage_stack;
+    void *segment;
+#endif
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */

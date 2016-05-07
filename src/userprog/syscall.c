@@ -244,6 +244,9 @@ sys_read (int fd, void *buffer, unsigned size)
   
   ret = -1;
 
+  if (buffer < thread_current ()->segment)
+    sys_exit (-1);
+
   if (fd == STDIN_FILENO)
   {
     lock_acquire (&fd_lock);

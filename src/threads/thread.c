@@ -204,6 +204,9 @@ thread_create (const char *name, int priority,
   list_push_back (&thread_current ()->children, &t->elem_child);
   t->parent = thread_current ();
 #endif
+#ifdef VM
+  list_init (&t->spagedir);
+#endif
 
   /* Add to run queue. */
   thread_unblock (t);
