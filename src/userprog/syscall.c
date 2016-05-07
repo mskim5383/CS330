@@ -6,6 +6,7 @@
 #include "threads/thread.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/palloc.h"
 #include "devices/input.h"
 #include "userprog/process.h"
 #include "filesys/filesys.h"
@@ -28,9 +29,9 @@ static unsigned sys_tell (int);
 
 static int allocate_fd ();
 static struct file_fd *find_file_fd (int);
-static int get_user (const uint8_t *);
+static int get_user (const uint8_t *, void *);
 static bool put_user (uint8_t *, uint8_t);
-static bool pointer_checkvalid (void *, uint8_t);
+static bool pointer_checkvalid (void *, uint8_t, void *);
 
 struct file_fd
 {
@@ -58,11 +59,13 @@ syscall_handler (struct intr_frame *f)
   int ret;
   p = f->esp;
 
-  if (!pointer_checkvalid (p, 12))
+  if (!pointer_checkvalid (p, 12, f->esp))
     sys_exit (-1);
   switch (*p)
   {
     case SYS_WRITE:
+      if (!pointer_checkvalid (*(p + 2), *(p + 3), f->esp))
+        sys_exit (-1);
       ret = sys_write (*(p + 1), *(p + 2), *(p + 3));
       break;
     case SYS_HALT:
@@ -72,24 +75,32 @@ syscall_handler (struct intr_frame *f)
       ret = sys_exit (*(p + 1));
       break;
     case SYS_EXEC:
+      if (!pointer_checkvalid (*(p + 1), strnlen (*(p + 1), 128), f->esp))
+        sys_exit (-1);
       ret = sys_exec (*(p + 1));
       break;
     case SYS_WAIT:
       ret = sys_wait (*(p + 1));
       break;
     case SYS_CREATE:
+      if (!pointer_checkvalid (*(p + 1), strnlen (*(p + 1), 128), f->esp))
+        sys_exit (-1);
       ret = sys_create(*(p + 1), *(p + 2));
       break;
     case SYS_REMOVE:
       ret = sys_remove(*(p + 1));
       break;
     case SYS_OPEN:
+      if (!pointer_checkvalid (*(p + 1), strnlen (*(p + 1), 128), f->esp))
+        sys_exit (-1);
       ret = sys_open (*(p + 1));
       break;
     case SYS_CLOSE:
       ret = sys_close (*(p + 1));
       break;
     case SYS_READ:
+      if (!pointer_checkvalid (*(p + 2), *(p + 3), f->esp))
+        sys_exit (-1);
       ret = sys_read (*(p + 1), *(p + 2), *(p + 3));
       break;
     case SYS_FILESIZE:
@@ -126,8 +137,6 @@ sys_write (int fd, const void *buffer, unsigned length)
     f_fd = find_file_fd (fd);
     if (f_fd == NULL)
       return ret;
-    if(!pointer_checkvalid(buffer,1) || !pointer_checkvalid(buffer+length, 1))
-      sys_exit (-1);
     lock_acquire (&fd_lock);
     ret = file_write (f_fd->file, buffer, length);
     lock_release (&fd_lock);
@@ -158,8 +167,6 @@ sys_exit (int status)
 static pid_t
 sys_exec (const char *cmd_line)
 {
-  if (!pointer_checkvalid (cmd_line, strnlen(cmd_line, 128)))
-    sys_exit (-1);
   return process_execute (cmd_line);
 } 
 
@@ -173,8 +180,6 @@ static bool
 sys_create (const char *file, unsigned initial_size)
 {
   bool ret;
-  if(!pointer_checkvalid(file, strnlen(file, 128)))
-    sys_exit (-1);
   if (file == NULL)
     sys_exit (-1);
   lock_acquire (&fd_lock);
@@ -198,8 +203,6 @@ sys_remove (const char *file)
 static int
 sys_open (const char *file)
 {
-  if(!pointer_checkvalid(file, strnlen(file, 128)))
-    sys_exit(-1);
   struct file *f;
   struct file_fd *f_fd;
   int fd;
@@ -257,8 +260,6 @@ sys_read (int fd, void *buffer, unsigned size)
     f_fd = find_file_fd (fd);
     if (f_fd == NULL)
       return -1;
-    if(!pointer_checkvalid(buffer, 1) || !pointer_checkvalid(buffer + size, 1))
-      sys_exit(-1);
     lock_acquire (&fd_lock);
     ret = file_read (f_fd->file, buffer, size);
     lock_release (&fd_lock);
@@ -322,11 +323,13 @@ find_file_fd (int fd)
 }
 
 static int
-get_user (const uint8_t *uaddr)
+get_user (const uint8_t *uaddr, void *esp)
 {
   if(!is_user_vaddr(uaddr))
     return -1;
   int result;
+  if (uaddr == esp - 4 || uaddr == esp - 32)
+    frame_get_page (PAL_USER, (uint32_t) uaddr & ~PGMASK, true); 
   asm ("movl $1f, %0; movzbl %1, %0; 1:"
       : "=&a" (result) : "m" (*uaddr));
   return result;
@@ -344,13 +347,16 @@ put_user (uint8_t *udst, uint8_t byte)
 }
 
 static bool
-pointer_checkvalid (void * ptr, uint8_t byte)
+pointer_checkvalid (void * ptr, uint8_t byte, void *esp)
 {
   int i;
   for(i = 0; i <byte; i++)
   {
-    if (get_user(((uint8_t*)(ptr))+i) == -1)
+    if (get_user(((uint8_t*)(ptr))+i, esp) == -1)
+    {
+      printf ("pointer invalid\n");
       return false;
+    }
   }
   return true;
 }

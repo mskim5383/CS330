@@ -4,6 +4,9 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/palloc.h"
+#include "threads/pte.h"
+#include "vm/frame.h"
 #include "vm/swap.h"
 
 /* Number of page faults processed. */
@@ -152,6 +155,11 @@ page_fault (struct intr_frame *f)
 
 
 
+  if (fault_addr == f->esp - 4 || fault_addr == f->esp - 32)
+  {
+    frame_get_page (PAL_USER, (uint32_t) fault_addr & ~PGMASK, true);
+    return;
+  }
   if(user || not_present)
   {
     if (swap_in (fault_addr))
