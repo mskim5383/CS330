@@ -75,7 +75,7 @@ frame_next_evict (void)
     f_e = list_entry (e, struct frame_entry, elem);
     accessed = *(f_e->pte) & PTE_A;
     *(f_e->pte) &= ~PTE_A;
-    if (accessed == 0)
+    if (accessed == 0 && f_e->loaded)
       return f_e;
     lock_acquire (&frame_entry_lock);
     list_remove (e);
