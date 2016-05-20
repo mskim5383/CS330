@@ -13,6 +13,8 @@ struct list frame_table;
 struct lock frame_lock;
 struct lock frame_entry_lock;
 
+#define FRAME_TABLE_SIZE 1024
+
 void
 frame_init (void)
 {
@@ -27,7 +29,8 @@ frame_palloc (enum palloc_flags flags, void *pte)
   void *kpage;
   struct frame_entry *f_e;
 
-  kpage = palloc_get_page (flags);
+  if (list_size (&frame_table) <= FRAME_TABLE_SIZE)
+    kpage = palloc_get_page (flags);
   if (kpage == NULL)
     kpage = swap_out ();
 
