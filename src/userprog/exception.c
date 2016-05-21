@@ -152,19 +152,19 @@ page_fault (struct intr_frame *f)
   user = (f->error_code & PF_U) != 0;
 
 
-  printf ("(%s) fault %p segment %p\n", thread_current ()->name, fault_addr, thread_current ()->segment);
+  //printf ("(%s) fault %p segment %p\n", thread_current ()->name, fault_addr, thread_current ()->segment);
   if(user || not_present)
   {
     if (write && (((uint32_t ) fault_addr) < thread_current ()->segment))
     {
-      PANIC ("exception1");
+      //PANIC ("exception1");
       sys_exit_extern (-1);
     }
     if (spage_get_page (pg_round_down (fault_addr)))
       return;
     if (fault_addr < (uint32_t) PHYS_BASE - (1 << 23))
     {
-      PANIC ("exception2");
+      //PANIC ("exception2");
       sys_exit_extern (-1);
     }
     diff = f->esp - fault_addr;
@@ -172,10 +172,10 @@ page_fault (struct intr_frame *f)
     if (diff == -8 || diff == -4 || diff == 0|| diff == 4 || diff == 32)
     {
       //printf ("stack growth!\n");
-      if (spage_palloc ((thread_current ()->spage_stack -= PGSIZE), PAL_USER | PAL_ZERO, true, false, 0, 0))
+      if (spage_palloc ((thread_current ()->spage_stack -= PGSIZE), PAL_USER | PAL_ZERO, true, false, 0, 0, NULL))
         return;
     }
-    PANIC ("exception3");
+    //PANIC ("exception3");
     sys_exit_extern (-1);
   }
 

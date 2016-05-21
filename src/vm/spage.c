@@ -30,10 +30,10 @@ spage_init (void)
 }
 
 void *
-spage_palloc (uint32_t *upage, enum palloc_flags flags, bool writable, bool lazy, off_t ofs, size_t page_read_bytes)
+spage_palloc (uint32_t *upage, enum palloc_flags flags, bool writable, bool lazy, off_t ofs, bool read, struct file *file)
 {
   struct SPTE *spte, hash_spte;
-  struct frame_entry *f_e;
+  struct frame_entry *f_e = NULL;
   struct hash_elem *hash_e;
   uint32_t *pte;
 
@@ -65,8 +65,9 @@ spage_palloc (uint32_t *upage, enum palloc_flags flags, bool writable, bool lazy
     spte->frame_entry = f_e;
   }
   spte->lazy = lazy;
+  spte->file = file;
   spte->ofs = ofs;
-  spte->page_read_bytes = page_read_bytes;
+  spte->read = read;
   spte->pte = pte;
   spte->swap_entry = NULL;
   spte->writable = writable;
@@ -114,10 +115,16 @@ spage_free_page (struct SPTE *spte)
 {
   frame_vm_acquire ();
   if (spte->swap)
+  {
     if (!spte->lazy)
+    {
       swap_free (spte);
+    }
+  }
   else
+  {
     frame_free (spte->kpage, true);
+  }
   frame_vm_release ();
   free (spte);
 }

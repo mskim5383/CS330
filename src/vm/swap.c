@@ -46,8 +46,9 @@ swap_out (void)
   spte = f_e->spte;
   kpage = f_e->kpage;
 
-  if (!spte->lazy)
+  if (!spte->lazy || (*(spte->pte) & PTE_D))
   {
+    spte->lazy = false;
     disk_idx = bitmap_scan_and_flip (swap_pool, 0, 1, true);
     if (disk_idx == BITMAP_ERROR)
       PANIC ("swap panic");
@@ -75,25 +76,34 @@ swap_in (struct SPTE *spte)
 {
   struct frame_entry *f_e;
   uint32_t disk_idx, *kpage, i, *pte;
+  struct file *file;
+  bool lazy;
 
 
   ASSERT (spte->swap);
   ASSERT (thread_current () == spte->thread);
 
-  f_e = frame_palloc (spte->flags, spte->pte);
+  f_e = frame_palloc (spte->flags | PAL_ZERO, spte->pte);
+  ASSERT (f_e != NULL);
   kpage = f_e->kpage;
 
+  lazy = spte->lazy;
   if (spte->lazy)
   {
-    lock_acquire (&swap_lazy_lock);
-    memset (kpage, 0, PGSIZE);
-    file_seek (spte->thread->file, spte->ofs);
-    if (file_read (spte->thread->file, kpage, spte->page_read_bytes) != (int) spte->page_read_bytes)
+    if (spte->read)
     {
-      frame_free (kpage, true);
-      PANIC ("lazy swap in fail");
+      lock_acquire (&swap_lazy_lock);
+      file = file_reopen (spte->file);
+      ASSERT (file != NULL);
+      file_seek (file, spte->ofs);
+      file_read (file, kpage, PGSIZE);
+      file_close (file);
+      lock_release (&swap_lazy_lock);
     }
-    lock_release (&swap_lazy_lock);
+    else
+    {
+      spte->lazy = false;
+    }
   }
   else
   {
@@ -105,10 +115,10 @@ swap_in (struct SPTE *spte)
   pte = spte->pte;
   *pte = pte_create_user (f_e->kpage, spte->writable);
   f_e->spte = spte;
-  f_e->loaded = true;
-  if (!spte->lazy)
+  if (!lazy)
     bitmap_flip (swap_pool, disk_idx);
   spte->swap = false;
+  f_e->loaded = true;
   if (!spte->lazy)
     free (spte->swap_entry);
 }

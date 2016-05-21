@@ -499,7 +499,19 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
       /* Get a page of memory. */
-      spage_palloc (upage, PAL_USER, writable, true, ofs, page_read_bytes);
+      {
+        uint8_t *kpage = spage_palloc (upage, PAL_USER, writable, false, 0, false, NULL);
+        if (kpage == NULL)
+          return false;
+
+        file_seek (file, ofs);
+        if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+        {
+          spage_free_page (upage);
+          return false;
+        }
+        memset (kpage + page_read_bytes, 0, page_zero_bytes);
+      }
 
 
       /* Add the page to the process's address space. */
@@ -521,7 +533,7 @@ setup_stack (void **esp)
   uint8_t *kpage;
   bool success = false;
 
-  kpage = spage_palloc (((uint8_t *) PHYS_BASE) - PGSIZE, PAL_USER | PAL_ZERO, true, false, 0, 0);
+  kpage = spage_palloc (((uint8_t *) PHYS_BASE) - PGSIZE, PAL_USER | PAL_ZERO, true, false, 0, 0, NULL);
   if (kpage != NULL) 
     {
       *esp = PHYS_BASE;
