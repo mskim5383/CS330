@@ -36,6 +36,7 @@ spage_palloc (uint32_t *upage, enum palloc_flags flags, bool writable, bool lazy
   struct frame_entry *f_e = NULL;
   struct hash_elem *hash_e;
   uint32_t *pte;
+  printf ("spage palloc\n");
 
   pte = lookup_page (thread_current ()->pagedir, upage, true);
   ASSERT (pte != NULL);
@@ -64,6 +65,7 @@ spage_palloc (uint32_t *upage, enum palloc_flags flags, bool writable, bool lazy
     spte->swap = false;
     spte->frame_entry = f_e;
   }
+  spte->flags = flags;
   spte->lazy = lazy;
   spte->file = file;
   spte->ofs = ofs;
@@ -94,6 +96,7 @@ void *
 spage_get_page (uint32_t upage)
 {
   struct SPTE *spte;
+  printf ("spage get page\n");
 
   spte = find_spte_from_upage (upage);
   if (spte == NULL)
@@ -113,6 +116,7 @@ spage_get_page (uint32_t upage)
 void
 spage_free_page (struct SPTE *spte)
 {
+  printf ("spage free page\n");
   frame_vm_acquire ();
   if (spte->swap)
   {
@@ -134,6 +138,7 @@ spage_free_dir ()
 {
   struct list_elem *e;
   struct SPTE *spte;
+  printf ("spage free dir\n");
 
   lock_acquire (&spage_lock);
   while (!list_empty (&thread_current ()->spagedir))

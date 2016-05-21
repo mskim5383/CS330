@@ -37,6 +37,7 @@ swap_out (void)
   uint32_t *kpage;
   uint32_t disk_idx, i;
 
+  printf ("swap out\n");
   lock_acquire (&swap_lock);
 
   f_e = frame_next_evict ();
@@ -68,6 +69,7 @@ swap_out (void)
   frame_free (kpage, false);
 
   lock_release (&swap_lock);
+  printf ("swap out complete\n");
   return kpage;
 }
 
@@ -79,6 +81,7 @@ swap_in (struct SPTE *spte)
   struct file *file;
   bool lazy;
 
+  printf ("swap in\n");
 
   ASSERT (spte->swap);
   ASSERT (thread_current () == spte->thread);
@@ -87,26 +90,26 @@ swap_in (struct SPTE *spte)
   ASSERT (f_e != NULL);
   kpage = f_e->kpage;
 
+  lock_acquire (&swap_lazy_lock);
   lazy = spte->lazy;
   if (spte->lazy)
   {
     if (spte->read)
     {
-      lock_acquire (&swap_lazy_lock);
-      file = file_reopen (spte->file);
+      file = spte->thread->file;
       ASSERT (file != NULL);
       file_seek (file, spte->ofs);
-      file_read (file, kpage, PGSIZE);
-      file_close (file);
-      lock_release (&swap_lazy_lock);
+      ASSERT (file_read (file, kpage, PGSIZE) == PGSIZE);
     }
     else
     {
       spte->lazy = false;
     }
+    lock_release (&swap_lazy_lock);
   }
   else
   {
+    lock_release (&swap_lazy_lock);
     disk_idx = spte->swap_entry->disk_idx;
     for (i = 0; i < 8; i++)
       disk_read (swap_disk, disk_idx * 8 + i, (uint32_t) kpage + i * 512);
@@ -115,11 +118,11 @@ swap_in (struct SPTE *spte)
   pte = spte->pte;
   *pte = pte_create_user (f_e->kpage, spte->writable);
   f_e->spte = spte;
+  f_e->loaded = true;
   if (!lazy)
     bitmap_flip (swap_pool, disk_idx);
   spte->swap = false;
-  f_e->loaded = true;
-  if (!spte->lazy)
+  if (!lazy)
     free (spte->swap_entry);
 }
 
@@ -127,6 +130,7 @@ void
 swap_free (struct SPTE *spte)
 {
   uint32_t disk_idx;
+  printf ("swap free\n");
 
   ASSERT (spte->swap);
   ASSERT (thread_current () == spte->thread);

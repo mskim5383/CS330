@@ -19,6 +19,7 @@
 #include "threads/vaddr.h"
 #include "threads/synch.h"
 #include "vm/spage.h"
+#include "vm/swap.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -499,6 +500,11 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
       /* Get a page of memory. */
+      if (page_read_bytes == PGSIZE)
+        spage_palloc (upage, PAL_USER, writable, true, ofs, true, file);
+      else if (page_zero_bytes == PGSIZE)
+        spage_palloc (upage, PAL_USER | PAL_ZERO, writable, true, ofs, false, file);
+      else
       {
         uint8_t *kpage = spage_palloc (upage, PAL_USER, writable, false, 0, false, NULL);
         if (kpage == NULL)
