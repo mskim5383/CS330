@@ -47,7 +47,7 @@ spage_palloc (uint32_t *upage, enum palloc_flags flags, bool writable)
   lock_acquire (&spage_lock);
 
   hash_spte.hash_key = (uint32_t) upage + (thread_current ()->tid);
-  hash_e = hash_find (&spage_hash, &hash_spte.elem);
+  hash_e = hash_find (&spage_hash, &hash_spte.hash_elem);
   ASSERT (hash_e == NULL);
 
   spte->upage = upage;
