@@ -8,6 +8,7 @@
 #include "threads/vaddr.h"
 #include "devices/input.h"
 #include "userprog/process.h"
+#include "vm/mmap.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 
@@ -25,6 +26,8 @@ static int sys_read (int, void *, unsigned);
 static int sys_filesize (int);
 static void sys_seek (int, unsigned);
 static unsigned sys_tell (int);
+static mapid_t sys_mmap (int, void *);
+static void sys_munmap (mapid_t);
 
 static int allocate_fd ();
 static struct file_fd *find_file_fd (int);
@@ -100,6 +103,12 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_TELL:
       ret = sys_tell (*(p + 1));
+      break;
+    case SYS_MMAP:
+      ret = sys_mmap (*(p + 1), *(p + 2));
+      break;
+    case SYS_MUNMAP:
+      sys_munmap (*(p + 1));
       break;
   }
 
@@ -294,6 +303,32 @@ sys_tell (int fd)
   return file_tell(f_fd->file); 
   
 }
+
+static mapid_t
+sys_mmap (int fd, void *addr)
+{
+  struct file_fd *f_fd;
+
+  if (fd == 0 || fd == 1)
+    return -1;
+  f_fd = find_file_fd (fd);
+  if (f_fd == NULL)
+    return -1;
+  if (pg_ofs (addr) != 0)
+    return -1;
+  if (addr <= thread_current ()->segment)
+    return -1;
+  if (addr > (uint32_t) PHYS_BASE - (1 << 23))
+    return -1;
+  return mmap_map (f_fd->file, addr);
+}
+
+static void
+sys_munmap (mapid_t mid)
+{
+  mmap_unmap (mid);
+}
+
 
 static int
 allocate_fd ()

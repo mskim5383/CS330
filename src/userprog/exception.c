@@ -174,7 +174,7 @@ page_fault (struct intr_frame *f)
     if (diff == -8 || diff == -4 || diff == 0|| diff == 4 || diff == 32)
     {
       //printf ("stack growth!\n");
-      if (spage_palloc ((thread_current ()->spage_stack -= PGSIZE), PAL_USER | PAL_ZERO, true, false, 0, 0, NULL))
+      if (spage_palloc ((thread_current ()->spage_stack -= PGSIZE), PAL_USER | PAL_ZERO, true, false, 0, 0, NULL, false))
         return;
     }
     //PANIC ("exception3");

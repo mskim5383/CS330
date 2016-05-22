@@ -15,7 +15,7 @@ swap_entry
 
 void swap_init (void);
 uint32_t *swap_out (void);
-void swap_in (struct SPTE *);
+void swap_in (struct SPTE *, bool);
 void swap_free (struct SPTE *);
 
 #endif

@@ -58,11 +58,11 @@ process_execute (const char *file_name)
     if (t->exit_status == -1)
     {
       tid = TID_ERROR;
-      sema_up (&t->wait_child);
+      sema_up (&t->wait_load);
       process_wait (t->tid);
     }
     else
-      sema_up (&t->wait_child);
+      sema_up (&t->wait_load);
   }
 
   return tid;
@@ -125,7 +125,7 @@ start_process (void *f_name)
       if_.esp -= 4;
       *(int *)(if_.esp) = 0;
       sema_up (&thread_current ()->wait_child);
-      sema_down (&thread_current ()->wait_child);
+      sema_down (&thread_current ()->wait_load);
       free (argv_save);
       palloc_free_page (file_name);
     }
@@ -133,7 +133,7 @@ start_process (void *f_name)
   {
     thread_current ()->exit_status = -1;
     sema_up (&thread_current ()->wait_child);
-    sema_down (&thread_current ()->wait_child);
+    sema_down (&thread_current ()->wait_load);
     free (argv_save);
     palloc_free_page (file_name);
   /* If load failed, quit. */
@@ -190,6 +190,7 @@ process_exit (void)
   struct thread *curr = thread_current ();
   uint32_t *pd;
 
+  spage_free_dir ();
   if (curr->parent != NULL)
   {
     intr_disable ();
@@ -198,7 +199,6 @@ process_exit (void)
   }
 
 
-  spage_free_dir ();
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = curr->pagedir;
@@ -501,7 +501,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
       /* Get a page of memory. */
       if (page_read_bytes == PGSIZE || page_zero_bytes == PGSIZE)
-        spage_palloc (upage, PAL_USER, writable, true, ofs, page_read_bytes, file);
+        spage_palloc (upage, PAL_USER, writable, true, ofs, page_read_bytes, file, false);
       /*
       if (page_read_bytes == PGSIZE)
         spage_palloc (upage, PAL_USER, writable, true, ofs, true, file);
@@ -510,7 +510,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       */
       else
       {
-        uint8_t *kpage = spage_palloc (upage, PAL_USER, writable, false, 0, 0, NULL);
+        uint8_t *kpage = spage_palloc (upage, PAL_USER, writable, false, 0, 0, NULL, false);
         if (kpage == NULL)
           return false;
 
@@ -543,7 +543,7 @@ setup_stack (void **esp)
   uint8_t *kpage;
   bool success = false;
 
-  kpage = spage_palloc (((uint8_t *) PHYS_BASE) - PGSIZE, PAL_USER | PAL_ZERO, true, false, 0, 0, NULL);
+  kpage = spage_palloc (((uint8_t *) PHYS_BASE) - PGSIZE, PAL_USER | PAL_ZERO, true, false, 0, 0, NULL, false);
   if (kpage != NULL) 
     {
       *esp = PHYS_BASE;

@@ -48,15 +48,15 @@ swap_out (void)
   spte = f_e->spte;
   ASSERT (spte != NULL);
   bool lazy = spte->lazy;
-  printf ("upage: %x lazy: %d dirty: %x\n", spte->upage, spte->lazy, *(spte->pte) & PTE_D);
+  //printf ("upage: %x lazy: %d dirty: %x\n", spte->upage, spte->lazy, *(spte->pte) & PTE_D);
   ASSERT (spte->pte == f_e->pte);
   ASSERT (spte != NULL);
   kpage = f_e->kpage;
   if ((!spte->lazy) || ((*(spte->pte)) & PTE_D))
   {
-    printf ("(%s) swap out\n", thread_current ()->name);
+    //printf ("(%s) swap out\n", thread_current ()->name);
     disk_idx = bitmap_scan_and_flip (swap_pool, 0, 1, true);
-    printf ("(%s) swap out: %x\n", thread_current ()->name, disk_idx);
+    //printf ("(%s) swap out: %x\n", thread_current ()->name, disk_idx);
     if (disk_idx == BITMAP_ERROR)
       PANIC ("swap panic");
 
@@ -73,7 +73,7 @@ swap_out (void)
     }
     spte->swap_entry = s_e;
     spte->lazy = false;
-    printf ("(%s) swap out complete\n", thread_current ()->name);
+    //printf ("(%s) swap out complete\n", thread_current ()->name);
   }
   spte->swap = true;
   frame_free (kpage, false);
@@ -86,7 +86,7 @@ swap_out (void)
 }
 
 void
-swap_in (struct SPTE *spte)
+swap_in (struct SPTE *spte, bool loaded)
 {
   struct frame_entry *f_e;
   uint32_t disk_idx, *kpage, i, *pte;
@@ -108,13 +108,14 @@ swap_in (struct SPTE *spte)
   {
     //if (spte->read)
     {
-      printf ("(%s) lazy loading %x\n", thread_current ()->name, spte->upage);
-      file = spte->thread->file;
+      //printf ("(%s) lazy loading %x\n", thread_current ()->name, spte->upage);
+      file = file_reopen(spte->file);
       ASSERT (file != NULL);
       file_seek (file, spte->ofs);
       ASSERT (file_read (file, kpage, spte->page_read_bytes) == spte->page_read_bytes);
+      file_close (file);
       memset (kpage + spte->page_read_bytes, 0, PGSIZE - spte->page_read_bytes);
-      printf ("(%s) lazy loading complete\n", thread_current ()->name);
+      //printf ("(%s) lazy loading complete\n", thread_current ()->name);
     }
     /*
     else
@@ -129,20 +130,20 @@ swap_in (struct SPTE *spte)
   }
   else
   {
-    printf ("(%s) swap in\n", thread_current ()->name);
+    //printf ("(%s) swap in\n", thread_current ()->name);
     lock_release (&swap_lazy_lock);
     disk_idx = spte->swap_entry->disk_idx;
-    printf ("(%s) swap in: %x %x\n", thread_current ()->name, disk_idx, spte->upage);
+    //printf ("(%s) swap in: %x %x\n", thread_current ()->name, disk_idx, spte->upage);
     for (i = 0; i < 8; i++)
       disk_read (swap_disk, disk_idx * 8 + i, (uint32_t) kpage + i * 512);
-    printf ("(%s) swap in complete\n", thread_current ()->name);
+    //printf ("(%s) swap in complete\n", thread_current ()->name);
   }
   spte->kpage = kpage;
   pte = spte->pte;
   ASSERT (f_e->spte == NULL);
   *pte = pte_create_user (f_e->kpage, spte->writable);
   f_e->spte = spte;
-  f_e->loaded = true;
+  f_e->loaded = loaded;
   if (!lazy)
   {
     bitmap_flip (swap_pool, disk_idx);

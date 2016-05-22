@@ -18,6 +18,7 @@ SPTE
   enum palloc_flags flags;
   bool writable;
   bool lazy;
+  bool mmap;
   off_t ofs;
   size_t page_read_bytes;
   struct file *file;
@@ -28,7 +29,7 @@ SPTE
 };
 
 void spage_init (void);
-void *spage_palloc (uint32_t *, enum palloc_flags, bool, bool, off_t, size_t, struct file *);
+void *spage_palloc (uint32_t *, enum palloc_flags, bool, bool, off_t, size_t, struct file *, bool);
 void *spage_get_page (uint32_t);
 void spage_free_page (struct SPTE *);
 void spage_free_dir (void);

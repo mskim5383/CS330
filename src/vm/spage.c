@@ -7,6 +7,7 @@
 #include "vm/spage.h"
 #include "vm/frame.h"
 #include "vm/swap.h"
+#include "vm/mmap.h"
 #include <hash.h>
 
 struct SPTE * find_spte_from_upage (uint32_t);
@@ -23,6 +24,7 @@ spage_init (void)
 {
   frame_init ();
   swap_init ();
+  mmap_init ();
   hash_init (&spage_hash, spage_hash_func, spage_less, NULL);
   lock_init (&spage_lock);
   lock_init (&spage_find_lock);
@@ -30,7 +32,7 @@ spage_init (void)
 }
 
 void *
-spage_palloc (uint32_t *upage, enum palloc_flags flags, bool writable, bool lazy, off_t ofs, size_t page_read_bytes, struct file *file)
+spage_palloc (uint32_t *upage, enum palloc_flags flags, bool writable, bool lazy, off_t ofs, size_t page_read_bytes, struct file *file, bool mmap)
 {
   struct SPTE *spte, hash_spte;
   struct frame_entry *f_e = NULL;
@@ -74,6 +76,7 @@ spage_palloc (uint32_t *upage, enum palloc_flags flags, bool writable, bool lazy
   spte->swap_entry = NULL;
   spte->writable = writable;
   spte->thread = thread_current ();
+  spte->mmap = mmap;
   spte->hash_key = (uint32_t) upage + thread_current ()->tid;
   hash_insert (&spage_hash, &spte->hash_elem);
   if (!lazy)
@@ -108,7 +111,7 @@ spage_get_page (uint32_t upage)
   if (spte->swap)
   {
     frame_vm_release ();
-    swap_in (spte);
+    swap_in (spte, true);
   }
   else
     frame_vm_release ();
@@ -120,6 +123,8 @@ spage_free_page (struct SPTE *spte)
 {
   ASSERT (spte != NULL);
   frame_vm_acquire ();
+  hash_delete (&spage_hash, &spte->hash_elem);
+  list_remove (&spte->elem);
   if (spte->swap)
   {
     if (!spte->lazy)
@@ -146,9 +151,8 @@ spage_free_dir ()
   {
     e = list_begin (&thread_current ()->spagedir);
     spte = list_entry (e, struct SPTE, elem);
-    hash_delete (&spage_hash, &spte->hash_elem);
-    list_remove (e);
-    spage_free_page (spte);
+    if (!mmap_free (spte->upage))
+      spage_free_page (spte);
   }
   lock_release (&spage_lock);
 }
