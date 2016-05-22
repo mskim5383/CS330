@@ -85,6 +85,21 @@ frame_next_evict (void)
   struct list_elem *e;
   uint32_t accessed;
 
+  e = list_begin (&frame_table);
+  lock_acquire (&frame_entry_lock);
+  list_remove (e);
+  list_push_back (&frame_table, e);
+  lock_release (&frame_entry_lock);
+  e = list_begin (&frame_table);
+  lock_acquire (&frame_entry_lock);
+  list_remove (e);
+  list_push_back (&frame_table, e);
+  lock_release (&frame_entry_lock);
+  e = list_begin (&frame_table);
+  lock_acquire (&frame_entry_lock);
+  list_remove (e);
+  list_push_back (&frame_table, e);
+  lock_release (&frame_entry_lock);
   while (true)
   {
     e = list_begin (&frame_table);
