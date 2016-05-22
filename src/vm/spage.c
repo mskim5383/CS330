@@ -30,7 +30,7 @@ spage_init (void)
 }
 
 void *
-spage_palloc (uint32_t *upage, enum palloc_flags flags, bool writable, bool lazy, off_t ofs, bool read, struct file *file)
+spage_palloc (uint32_t *upage, enum palloc_flags flags, bool writable, bool lazy, off_t ofs, size_t page_read_bytes, struct file *file)
 {
   struct SPTE *spte, hash_spte;
   struct frame_entry *f_e = NULL;
@@ -55,12 +55,14 @@ spage_palloc (uint32_t *upage, enum palloc_flags flags, bool writable, bool lazy
   if (lazy)
   {
     spte->kpage = NULL;
+    spte->pte = pte;
     spte->swap = true;
     spte->frame_entry = NULL;
   }
   else
   {
     spte->kpage = f_e->kpage;
+    spte->pte = pte;
     spte->swap = false;
     spte->frame_entry = f_e;
   }
@@ -68,19 +70,18 @@ spage_palloc (uint32_t *upage, enum palloc_flags flags, bool writable, bool lazy
   spte->lazy = lazy;
   spte->file = file;
   spte->ofs = ofs;
-  spte->read = read;
-  spte->pte = pte;
+  spte->page_read_bytes = page_read_bytes;
   spte->swap_entry = NULL;
   spte->writable = writable;
   spte->thread = thread_current ();
   spte->hash_key = (uint32_t) upage + thread_current ()->tid;
+  hash_insert (&spage_hash, &spte->hash_elem);
   if (!lazy)
   {
     ASSERT (f_e->spte == NULL);
     *pte = pte_create_user (f_e->kpage, writable);
   }
   list_push_back (&thread_current ()->spagedir, &spte->elem);
-  hash_insert (&spage_hash, &spte->hash_elem);
   if (!lazy)
   {
     f_e->spte = spte;
@@ -117,6 +118,7 @@ spage_get_page (uint32_t upage)
 void
 spage_free_page (struct SPTE *spte)
 {
+  ASSERT (spte != NULL);
   frame_vm_acquire ();
   if (spte->swap)
   {

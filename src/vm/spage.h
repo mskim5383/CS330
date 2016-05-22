@@ -19,7 +19,7 @@ SPTE
   bool writable;
   bool lazy;
   off_t ofs;
-  bool read;
+  size_t page_read_bytes;
   struct file *file;
   struct thread *thread;
   struct list_elem elem;
@@ -28,7 +28,7 @@ SPTE
 };
 
 void spage_init (void);
-void *spage_palloc (uint32_t *, enum palloc_flags, bool, bool, off_t, bool, struct file *);
+void *spage_palloc (uint32_t *, enum palloc_flags, bool, bool, off_t, size_t, struct file *);
 void *spage_get_page (uint32_t);
 void spage_free_page (struct SPTE *);
 void spage_free_dir (void);

@@ -500,13 +500,17 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
       /* Get a page of memory. */
+      if (page_read_bytes == PGSIZE || page_zero_bytes == PGSIZE)
+        spage_palloc (upage, PAL_USER, writable, true, ofs, page_read_bytes, file);
+      /*
       if (page_read_bytes == PGSIZE)
         spage_palloc (upage, PAL_USER, writable, true, ofs, true, file);
       else if (page_zero_bytes == PGSIZE)
         spage_palloc (upage, PAL_USER | PAL_ZERO, writable, true, ofs, false, file);
+      */
       else
       {
-        uint8_t *kpage = spage_palloc (upage, PAL_USER, writable, false, 0, false, NULL);
+        uint8_t *kpage = spage_palloc (upage, PAL_USER, writable, false, 0, 0, NULL);
         if (kpage == NULL)
           return false;
 

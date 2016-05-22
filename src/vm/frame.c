@@ -36,6 +36,8 @@ frame_palloc (enum palloc_flags flags, void *pte)
       memset (kpage, 0, PGSIZE);
   }
 
+  ASSERT (kpage != NULL);
+
   f_e = (struct frame_entry *) malloc (sizeof (struct frame_entry));
   ASSERT (f_e != NULL);
 
@@ -83,7 +85,6 @@ frame_next_evict (void)
   struct list_elem *e;
   uint32_t accessed;
 
-  lock_acquire (&frame_entry_lock);
   while (true)
   {
     e = list_begin (&frame_table);
@@ -91,14 +92,12 @@ frame_next_evict (void)
     accessed = *(f_e->pte) & PTE_A;
     *(f_e->pte) &= ~PTE_A;
     if (accessed == 0 && f_e->loaded)
-    {
-      lock_release (&frame_entry_lock);
       return f_e;
-    }
+    lock_acquire (&frame_entry_lock);
     list_remove (e);
     list_push_back (&frame_table, e);
+    lock_release (&frame_entry_lock);
   }
-  lock_release (&frame_entry_lock);
 
   return NULL;
 }
