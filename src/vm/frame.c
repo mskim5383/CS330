@@ -25,7 +25,6 @@ frame_palloc (enum palloc_flags flags, void *pte)
 {
   void *kpage = NULL;
   struct frame_entry *f_e;
-  printf ("frame palloc\n");
 
   ASSERT (flags & PAL_USER);
   kpage = palloc_get_page (flags);
@@ -33,12 +32,15 @@ frame_palloc (enum palloc_flags flags, void *pte)
   if (kpage == NULL)
   {
     kpage = swap_out ();
+    if (flags & PAL_ZERO)
+      memset (kpage, 0, PGSIZE);
   }
 
   f_e = (struct frame_entry *) malloc (sizeof (struct frame_entry));
   ASSERT (f_e != NULL);
 
   lock_acquire (&frame_lock);
+  f_e->spte = NULL;
   f_e->pte = pte;
   f_e->kpage = kpage;
   f_e->thread = thread_current ();
@@ -53,7 +55,6 @@ void
 frame_free (void *kpage, bool palloc_free)
 {
   struct frame_entry *f_e;
-  printf ("frame free\n");
 
   lock_acquire (&frame_lock);
   f_e = find_entry_from_kpage (kpage);
@@ -81,7 +82,6 @@ frame_next_evict (void)
   struct frame_entry *f_e;
   struct list_elem *e;
   uint32_t accessed;
-  printf ("frame next evict\n");
 
   lock_acquire (&frame_entry_lock);
   while (true)
