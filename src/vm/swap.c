@@ -36,7 +36,7 @@ swap_out (void)
   struct swap_entry *s_e;
   uint32_t *kpage;
   uint32_t disk_idx, i;
-
+  struct file *file;
   frame_vm_acquire ();
   lock_acquire (&swap_lock);
 
@@ -52,7 +52,15 @@ swap_out (void)
   ASSERT (spte->pte == f_e->pte);
   ASSERT (spte != NULL);
   kpage = f_e->kpage;
-  if ((!spte->lazy) || ((*(spte->pte)) & PTE_D))
+  if (spte->mmap && ((*(spte->pte)) & PTE_D))
+  {
+    file = file_reopen (spte->file);
+    ASSERT (file != NULL);
+    file_seek (file, spte->ofs);
+    file_write (file, spte->kpage, spte->page_read_bytes);
+    file_close (file);
+  }
+  else if ((!spte->lazy) || ((*(spte->pte)) & PTE_D))
   {
     //printf ("(%s) swap out\n", thread_current ()->name);
     disk_idx = bitmap_scan_and_flip (swap_pool, 0, 1, true);
