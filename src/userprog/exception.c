@@ -155,8 +155,6 @@ page_fault (struct intr_frame *f)
   //printf ("(%s) fault %p segment %p\n", thread_current ()->name, fault_addr, thread_current ()->segment);
   if(user || not_present)
   {
-    if ((uint32_t) fault_addr == 0x5a)
-      return;
     if (write && (((uint32_t ) fault_addr) < thread_current ()->segment))
     {
       //PANIC ("exception1");
