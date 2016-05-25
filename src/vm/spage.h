@@ -13,6 +13,7 @@ SPTE
   uint32_t *kpage;
   uint32_t *pte;
   bool swap;
+  bool swapping;
   struct frame_entry *frame_entry;
   struct swap_entry *swap_entry;
   enum palloc_flags flags;

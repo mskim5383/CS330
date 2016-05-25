@@ -68,6 +68,7 @@ spage_palloc (uint32_t *upage, enum palloc_flags flags, bool writable, bool lazy
     spte->swap = false;
     spte->frame_entry = f_e;
   }
+  spte->swapping = false;
   spte->flags = flags;
   spte->lazy = lazy;
   spte->file = file;

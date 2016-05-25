@@ -15,6 +15,7 @@
 struct bitmap *swap_pool;
 struct disk *swap_disk;
 struct lock swap_lock;
+struct lock swap_pte_lock;
 struct lock swap_lazy_lock;
 size_t swap_size;
 
@@ -25,6 +26,7 @@ swap_init (void)
   swap_pool = bitmap_create (swap_size = (disk_size (swap_disk) / 8 - 1));
   bitmap_set_all (swap_pool, true);
   lock_init (&swap_lock);
+  lock_init (&swap_pte_lock);
   lock_init (&swap_lazy_lock);
 }
 
@@ -46,6 +48,12 @@ swap_out (void)
 
 
   spte = f_e->spte;
+
+  lock_acquire (&swap_pte_lock);
+  *(spte->pte) &= ~PTE_P;
+  spte->swapping = true;
+  lock_release (&swap_pte_lock);
+
   ASSERT (spte != NULL);
   bool lazy = spte->lazy;
   //printf ("upage: %x lazy: %d dirty: %x\n", spte->upage, spte->lazy, *(spte->pte) & PTE_D);
@@ -83,6 +91,7 @@ swap_out (void)
     spte->lazy = false;
     //printf ("(%s) swap out complete\n", thread_current ()->name);
   }
+  spte->swapping = false;
   spte->swap = true;
   frame_free (kpage, false);
   //*(spte->pte) &= ~PTE_P;
@@ -104,6 +113,14 @@ swap_in (struct SPTE *spte, bool loaded)
 
   ASSERT (spte->swap);
   ASSERT (thread_current () == spte->thread);
+
+  lock_acquire (&swap_pte_lock);
+  if (spte->swapping)
+  {
+    lock_release (&swap_pte_lock);
+    return;
+  }
+  lock_release (&swap_pte_lock);
 
   f_e = frame_palloc (spte->flags, spte->pte);
   ASSERT (f_e != NULL);
