@@ -3,6 +3,7 @@
 #include <debug.h>
 #include <round.h>
 #include <string.h>
+#include "threads/synch.h"
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
 #include "threads/malloc.h"
@@ -19,6 +20,19 @@ struct inode_disk
     unsigned magic;                     /* Magic number. */
     uint32_t unused[125];               /* Not used. */
   };
+
+struct BC
+{
+  void *buffer;
+  disk_sector_t sector;
+  bool alloc;
+  bool access;
+  bool dirty;
+  struct lock lock;
+};
+
+static void _disk_read (struct disk *, disk_sector_t, void *, int, int);
+static void _disk_write (struct disk *, disk_sector_t, const void *, int, int);
 
 /* Returns the number of sectors to allocate for an inode SIZE
    bytes long. */
@@ -57,11 +71,27 @@ byte_to_sector (const struct inode *inode, off_t pos)
    returns the same `struct inode'. */
 static struct list open_inodes;
 
+static struct BC BClist[64];
+static int next_BC_to_evict;
+static struct lock evict_lock;
+
 /* Initializes the inode module. */
 void
 inode_init (void) 
 {
+  int i;
   list_init (&open_inodes);
+  for (i = 0; i < 64; ++i)
+  {
+    BClist[i].buffer = malloc (DISK_SECTOR_SIZE);
+    BClist[i].alloc = false;
+    BClist[i].access = false;
+    BClist[i].dirty = false;
+    BClist[i].sector = -1;
+    lock_init (&(BClist[i].lock));
+  }
+  next_BC_to_evict = 0;
+  lock_init (&evict_lock);
 }
 
 /* Initializes an inode with LENGTH bytes of data and
@@ -89,14 +119,14 @@ inode_create (disk_sector_t sector, off_t length)
       disk_inode->magic = INODE_MAGIC;
       if (free_map_allocate (sectors, &disk_inode->start))
         {
-          disk_write (filesys_disk, sector, disk_inode);
+          _disk_write (filesys_disk, sector, disk_inode, 0, DISK_SECTOR_SIZE);
           if (sectors > 0) 
             {
               static char zeros[DISK_SECTOR_SIZE];
               size_t i;
               
               for (i = 0; i < sectors; i++) 
-                disk_write (filesys_disk, disk_inode->start + i, zeros); 
+                _disk_write (filesys_disk, disk_inode->start + i, zeros, 0, DISK_SECTOR_SIZE); 
             }
           success = true; 
         } 
@@ -137,7 +167,7 @@ inode_open (disk_sector_t sector)
   inode->open_cnt = 1;
   inode->deny_write_cnt = 0;
   inode->removed = false;
-  disk_read (filesys_disk, inode->sector, &inode->data);
+  _disk_read (filesys_disk, inode->sector, &inode->data, 0, DISK_SECTOR_SIZE);
   return inode;
 }
 
@@ -220,24 +250,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       if (chunk_size <= 0)
         break;
 
-      if (sector_ofs == 0 && chunk_size == DISK_SECTOR_SIZE) 
-        {
-          /* Read full sector directly into caller's buffer. */
-          disk_read (filesys_disk, sector_idx, buffer + bytes_read); 
-        }
-      else 
-        {
-          /* Read sector into bounce buffer, then partially copy
-             into caller's buffer. */
-          if (bounce == NULL) 
-            {
-              bounce = malloc (DISK_SECTOR_SIZE);
-              if (bounce == NULL)
-                break;
-            }
-          disk_read (filesys_disk, sector_idx, bounce);
-          memcpy (buffer + bytes_read, bounce + sector_ofs, chunk_size);
-        }
+      _disk_read (filesys_disk, sector_idx, buffer + bytes_read, sector_ofs, chunk_size);
       
       /* Advance. */
       size -= chunk_size;
@@ -281,31 +294,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       if (chunk_size <= 0)
         break;
 
-      if (sector_ofs == 0 && chunk_size == DISK_SECTOR_SIZE) 
-        {
-          /* Write full sector directly to disk. */
-          disk_write (filesys_disk, sector_idx, buffer + bytes_written); 
-        }
-      else 
-        {
-          /* We need a bounce buffer. */
-          if (bounce == NULL) 
-            {
-              bounce = malloc (DISK_SECTOR_SIZE);
-              if (bounce == NULL)
-                break;
-            }
-
-          /* If the sector contains data before or after the chunk
-             we're writing, then we need to read in the sector
-             first.  Otherwise we start with a sector of all zeros. */
-          if (sector_ofs > 0 || chunk_size < sector_left) 
-            disk_read (filesys_disk, sector_idx, bounce);
-          else
-            memset (bounce, 0, DISK_SECTOR_SIZE);
-          memcpy (bounce + sector_ofs, buffer + bytes_written, chunk_size);
-          disk_write (filesys_disk, sector_idx, bounce); 
-        }
+      _disk_write (filesys_disk, sector_idx, buffer + bytes_written, sector_ofs, chunk_size);
 
       /* Advance. */
       size -= chunk_size;
@@ -342,4 +331,111 @@ off_t
 inode_length (const struct inode *inode)
 {
   return inode->data.length;
+}
+
+static void _disk_read (struct disk *d, disk_sector_t sec_no, void *buffer, int start, int end)
+{
+  int i;
+  struct BC *bc;
+  for (i = 0; i < 64; ++i)
+  {
+    bc = &BClist[i];
+    lock_acquire (&bc->lock);
+    if (bc->sector == sec_no)
+    {
+      bc->access = true;
+      goto read;
+    }
+    lock_release (&bc->lock);
+  }
+
+  lock_acquire (&evict_lock);
+  while (true)
+  {
+    bc = &BClist[next_BC_to_evict];
+    next_BC_to_evict = (next_BC_to_evict + 1) % 64;
+    lock_acquire (&bc->lock);
+    if (!bc->alloc)
+    {
+      disk_read (d, sec_no, bc->buffer);
+      bc->sector = sec_no;
+      bc->alloc = true;
+      bc->access = false;
+      bc->dirty = false;
+      lock_release (&evict_lock);
+      goto read;
+    }
+    if (!bc->access)
+    {
+      if (bc->dirty)
+      {
+        disk_write (d, bc->sector, bc->buffer);
+      }
+      disk_read (d, sec_no, bc->buffer);
+      bc->sector = sec_no;
+      bc->alloc = true;
+      bc->access = false;
+      bc->dirty = false;
+      lock_release (&evict_lock);
+      goto read;
+    }
+    bc->access = false;
+    lock_release (&bc->lock);
+  }
+
+read:
+  memcpy (buffer, bc->buffer + start, end);
+  lock_release (&bc->lock);
+}
+
+static void _disk_write (struct disk *d, disk_sector_t sec_no, const void *buffer, int start, int end)
+{
+  int i;
+  struct BC *bc;
+  for (i = 0; i < 64; ++i)
+  {
+    bc = &BClist[i];
+    lock_acquire (&bc->lock);
+    if (bc->sector == sec_no)
+    {
+      bc->dirty = true;
+      goto write;
+    }
+    lock_release (&bc->lock);
+  }
+
+  lock_acquire (&evict_lock);
+  while (true)
+  {
+    bc = &BClist[next_BC_to_evict];
+    next_BC_to_evict = (next_BC_to_evict + 1) % 64;
+    lock_acquire (&bc->lock);
+    if (!bc->alloc)
+    {
+      disk_read (d, sec_no, bc->buffer);
+      bc->dirty = true;
+      lock_release (&evict_lock);
+      goto write;
+    }
+    if (!bc->access)
+    {
+      if (bc->dirty)
+      {
+        disk_write (d, bc->sector, bc->buffer);
+      }
+      disk_read (d, sec_no, bc->buffer);
+      bc->dirty = true;
+      lock_release (&evict_lock);
+      goto write;
+    }
+    bc->access = false;
+    lock_release (&bc->lock);
+  }
+
+write:
+  memcpy (bc->buffer + start, buffer, end);
+  bc->sector = sec_no;
+  bc->alloc = true;
+  bc->access = true;
+  lock_release (&bc->lock);
 }
