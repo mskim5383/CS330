@@ -10,15 +10,34 @@
 
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
+#define INODE_INDIRECT_MAGIC 0x68995383
+#define INODE_DOUBLY_MAGIC 0x66312117
+#define SECTOR_ERROR 0xffffffff
 
 /* On-disk inode.
    Must be exactly DISK_SECTOR_SIZE bytes long. */
 struct inode_disk
   {
     disk_sector_t start;                /* First data sector. */
-    off_t length;                       /* File size in bytes. */
+    off_t length;
     unsigned magic;                     /* Magic number. */
-    uint32_t unused[125];               /* Not used. */
+    disk_sector_t sector[119];
+    disk_sector_t indirect[5];
+    disk_sector_t doubly_indirect;
+  };
+
+struct inode_indirect
+  {
+    disk_sector_t start;
+    unsigned magic;
+    disk_sector_t sector[126];
+  };
+
+struct inode_double
+  {
+    disk_sector_t start;
+    unsigned magic;
+    disk_sector_t inode_indirect[126];
   };
 
 struct BC
@@ -33,6 +52,7 @@ struct BC
 
 static void _disk_read (struct disk *, disk_sector_t, void *, int, int);
 static void _disk_write (struct disk *, disk_sector_t, const void *, int, int);
+static disk_sector_t byte_to_sector2 (struct inode_disk *, off_t); 
 
 /* Returns the number of sectors to allocate for an inode SIZE
    bytes long. */
@@ -61,11 +81,186 @@ static disk_sector_t
 byte_to_sector (const struct inode *inode, off_t pos) 
 {
   ASSERT (inode != NULL);
-  if (pos < inode->data.length)
-    return inode->data.start + pos / DISK_SECTOR_SIZE;
-  else
-    return -1;
+  return byte_to_sector2 (&inode->data, pos);
 }
+
+static disk_sector_t
+byte_to_sector2 (struct inode_disk *data, off_t pos) 
+{
+  ASSERT (data != NULL);
+  if (pos / DISK_SECTOR_SIZE < 119)
+  {
+    disk_sector_t sector = data->sector[pos / DISK_SECTOR_SIZE];
+    if (sector == SECTOR_ERROR || sector == 0xffffff)
+    {
+      static char zeros[DISK_SECTOR_SIZE];
+      if (!free_map_allocate (1, &(data->sector[pos / DISK_SECTOR_SIZE]))) 
+      {
+        return SECTOR_ERROR;
+      }
+      sector = data->sector[pos / DISK_SECTOR_SIZE];
+      _disk_write (filesys_disk, sector, zeros, 0, DISK_SECTOR_SIZE); 
+    }
+    _disk_write (filesys_disk, data->start, data, 0, DISK_SECTOR_SIZE);
+    return sector;
+  }
+  else if (pos / DISK_SECTOR_SIZE < 119 + 5 * 126)
+  {
+    disk_sector_t sector = data->indirect[(pos / DISK_SECTOR_SIZE - 119) / 126];
+    struct inode_indirect *indirect = (struct inode_indirect *) malloc (sizeof (struct inode_indirect));
+    if (sector == SECTOR_ERROR)
+    {
+      if (!free_map_allocate (1, &(data->indirect[(pos / DISK_SECTOR_SIZE - 119) / 126])))
+      {
+        free (indirect);
+        return SECTOR_ERROR;
+      }
+      sector = data->indirect[(pos / DISK_SECTOR_SIZE - 119) / 126];
+      indirect->start = sector;
+      indirect->magic = INODE_INDIRECT_MAGIC;
+      memset (indirect->sector, SECTOR_ERROR, 126 * 4);
+      _disk_write (filesys_disk, sector, indirect, 0, DISK_SECTOR_SIZE); 
+    }
+    _disk_write (filesys_disk, data->start, data, 0, DISK_SECTOR_SIZE);
+    _disk_read (filesys_disk, sector, indirect, 0, DISK_SECTOR_SIZE);
+
+    ASSERT (indirect->magic == INODE_INDIRECT_MAGIC);
+
+    sector = indirect->sector[(pos / DISK_SECTOR_SIZE - 119) % 126]; 
+    if (sector == SECTOR_ERROR)
+    {
+      static char zeros[DISK_SECTOR_SIZE];
+      if (!free_map_allocate (1, &(indirect->sector[(pos / DISK_SECTOR_SIZE - 119) % 126]))) 
+      {
+        free (indirect);
+        return SECTOR_ERROR;
+      }
+      sector = indirect->sector[(pos / DISK_SECTOR_SIZE - 119) % 126];
+      _disk_write (filesys_disk, sector, zeros, 0, DISK_SECTOR_SIZE); 
+    }
+    _disk_write (filesys_disk, indirect->start, indirect, 0, DISK_SECTOR_SIZE);
+    free (indirect);
+    return sector;
+  }
+  else if (pos / DISK_SECTOR_SIZE < 119 + 5 * 126 + 126 * 126)
+  {
+    disk_sector_t sector = data->doubly_indirect;
+    struct inode_double *doubly = (struct inode_double *) malloc (sizeof (struct inode_double));
+    if (sector == SECTOR_ERROR)
+    {
+      if (!free_map_allocate (1, &(data->doubly_indirect)))
+      {
+        free (doubly);
+        return SECTOR_ERROR;
+      }
+      sector = data->doubly_indirect;
+      _disk_read (filesys_disk, sector, doubly, 0, DISK_SECTOR_SIZE);
+      doubly->start = sector;
+      doubly->magic = INODE_DOUBLY_MAGIC;
+      memset (doubly->inode_indirect, SECTOR_ERROR, 126 * 4);
+      _disk_write (filesys_disk, sector, doubly, 0, DISK_SECTOR_SIZE);
+    }
+    _disk_read (filesys_disk, sector, doubly, 0, DISK_SECTOR_SIZE);
+    ASSERT (doubly->magic == INODE_DOUBLY_MAGIC);
+    struct inode_indirect *indirect = (struct inode_indirect *) malloc (sizeof (struct inode_indirect));
+    sector = doubly->inode_indirect[(pos / DISK_SECTOR_SIZE - 119 - 5 * 126) % (126 * 126)];
+    if (sector == SECTOR_ERROR)
+    {
+      if (!free_map_allocate (1, &(doubly->inode_indirect[(pos / DISK_SECTOR_SIZE - 119 - 5 * 126) % (126 * 126)])))
+      {
+        free (doubly);
+        free (indirect);
+        return SECTOR_ERROR;
+      }
+      sector = doubly->inode_indirect[(pos / DISK_SECTOR_SIZE - 119 - 5 * 126) % (126 * 126)];
+      indirect->start = sector;
+      indirect->magic = INODE_INDIRECT_MAGIC;
+      memset (indirect->sector, SECTOR_ERROR, 126 * 4);
+      _disk_write (filesys_disk, sector, indirect, 0, DISK_SECTOR_SIZE); 
+    }
+    _disk_write (filesys_disk, doubly->start, doubly, 0, DISK_SECTOR_SIZE);
+    free (doubly);
+
+    _disk_read (filesys_disk, sector, indirect, 0, DISK_SECTOR_SIZE);
+
+    ASSERT (indirect->magic == INODE_INDIRECT_MAGIC);
+    sector = indirect->sector[(pos / DISK_SECTOR_SIZE - 119 - 5 * 126) % 126]; 
+    if (sector == SECTOR_ERROR)
+    {
+      static char zeros[DISK_SECTOR_SIZE];
+      if (!free_map_allocate (1, &(indirect->sector[(pos / DISK_SECTOR_SIZE - 119 - 5 * 126) % 126]))) 
+      {
+        free (indirect);
+        return SECTOR_ERROR;
+      }
+      sector = indirect->sector[(pos / DISK_SECTOR_SIZE - 119 - 5 * 126) % 126];
+      _disk_write (filesys_disk, sector, zeros, 0, DISK_SECTOR_SIZE); 
+    }
+    _disk_write (filesys_disk, indirect->start, indirect, 0, DISK_SECTOR_SIZE);
+    free (indirect);
+    return sector;
+  }
+  else
+    return SECTOR_ERROR;
+}
+
+static void free_inode_disk (struct inode_disk *data)
+{
+  int i;
+  struct inode_indirect *indirect = (struct inode_indirect *) malloc (sizeof (struct inode_indirect));
+  for (i = 0; i < 119; ++i)
+  {
+    if (data->sector[i] != SECTOR_ERROR)
+    {
+      free_map_release (data->sector[i], 1);
+    }
+  }
+  for (i = 0; i < 5; ++i)
+  {
+    int j;
+    if (data->indirect[i] != SECTOR_ERROR)
+    {
+      _disk_read (filesys_disk, data->indirect[i], indirect, 0, DISK_SECTOR_SIZE);
+      ASSERT (indirect->magic == INODE_INDIRECT_MAGIC);
+      for (j = 0; j < 126; ++j)
+      {
+        if (indirect->sector[j] != SECTOR_ERROR)
+        {
+          free_map_release (indirect->sector[j], 1);
+        }
+      }
+      free_map_release (data->indirect[i], 1);
+    }
+  }
+  if (data->doubly_indirect != SECTOR_ERROR)
+  {
+    struct inode_double *doubly = (struct inode_doubly *) malloc (sizeof (struct inode_double));
+    _disk_read (filesys_disk, data->doubly_indirect, doubly, 0, DISK_SECTOR_SIZE);
+    ASSERT (doubly->magic == INODE_DOUBLY_MAGIC);
+    for (i = 0; i < 126; ++i)
+    {
+      int j;
+      if (doubly->inode_indirect[i] != SECTOR_ERROR)
+      {
+        _disk_read (filesys_disk, doubly->inode_indirect[i], indirect, 0, DISK_SECTOR_SIZE);
+        ASSERT (indirect->magic == INODE_INDIRECT_MAGIC);
+        for (j = 0; j < 126; ++j)
+        {
+          if (indirect->sector[j] != SECTOR_ERROR)
+          {
+            free_map_release (indirect->sector[j], 1);
+          }
+        }
+        free_map_release (doubly->inode_indirect[i], 1);
+      }
+    }
+    free_map_release (data->doubly_indirect, 1);
+    free (doubly);
+  }
+  free (indirect);
+}
+
+
 
 /* List of open inodes, so that opening a single inode twice
    returns the same `struct inode'. */
@@ -87,7 +282,7 @@ inode_init (void)
     BClist[i].alloc = false;
     BClist[i].access = false;
     BClist[i].dirty = false;
-    BClist[i].sector = -1;
+    BClist[i].sector = 0;
     lock_init (&(BClist[i].lock));
   }
   next_BC_to_evict = 0;
@@ -103,7 +298,7 @@ bool
 inode_create (disk_sector_t sector, off_t length)
 {
   struct inode_disk *disk_inode = NULL;
-  bool success = false;
+  bool success = true;
 
   ASSERT (length >= 0);
 
@@ -112,24 +307,27 @@ inode_create (disk_sector_t sector, off_t length)
   ASSERT (sizeof *disk_inode == DISK_SECTOR_SIZE);
 
   disk_inode = calloc (1, sizeof *disk_inode);
+  memset (disk_inode->sector, SECTOR_ERROR, 119 * 4);
+  memset (disk_inode->indirect, SECTOR_ERROR, 5 * 4);
+  disk_inode->doubly_indirect = SECTOR_ERROR;
+
   if (disk_inode != NULL)
     {
       size_t sectors = bytes_to_sectors (length);
+      int i;
       disk_inode->length = length;
       disk_inode->magic = INODE_MAGIC;
-      if (free_map_allocate (sectors, &disk_inode->start))
-        {
-          _disk_write (filesys_disk, sector, disk_inode, 0, DISK_SECTOR_SIZE);
-          if (sectors > 0) 
-            {
-              static char zeros[DISK_SECTOR_SIZE];
-              size_t i;
-              
-              for (i = 0; i < sectors; i++) 
-                _disk_write (filesys_disk, disk_inode->start + i, zeros, 0, DISK_SECTOR_SIZE); 
-            }
-          success = true; 
-        } 
+      disk_inode->start = sector;
+      _disk_write (filesys_disk, sector, disk_inode, 0, DISK_SECTOR_SIZE);
+      for (i = 0; i < sectors; ++i)
+      {
+        if (byte_to_sector2 (disk_inode, i * DISK_SECTOR_SIZE) == SECTOR_ERROR)
+          success = false;
+      }
+      if (!success)
+      {
+        free_inode_disk (disk_inode);
+      }
       free (disk_inode);
     }
   return success;
@@ -207,8 +405,7 @@ inode_close (struct inode *inode)
       if (inode->removed) 
         {
           free_map_release (inode->sector, 1);
-          free_map_release (inode->data.start,
-                            bytes_to_sectors (inode->data.length)); 
+          free_inode_disk (&(inode->data));
         }
 
       free (inode); 
@@ -278,11 +475,14 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
   if (inode->deny_write_cnt)
     return 0;
 
+  if (inode_length (inode) < offset + size)
+    inode->data.length = offset + size;
   while (size > 0) 
     {
       /* Sector to write, starting byte offset within sector. */
       disk_sector_t sector_idx = byte_to_sector (inode, offset);
       int sector_ofs = offset % DISK_SECTOR_SIZE;
+
 
       /* Bytes left in inode, bytes left in sector, lesser of the two. */
       off_t inode_left = inode_length (inode) - offset;
@@ -435,6 +635,7 @@ static void _disk_write (struct disk *d, disk_sector_t sec_no, const void *buffe
 write:
   memcpy (bc->buffer + start, buffer, end);
   bc->sector = sec_no;
+  //disk_write (d, bc->sector, bc->buffer);
   bc->alloc = true;
   bc->access = true;
   lock_release (&bc->lock);
