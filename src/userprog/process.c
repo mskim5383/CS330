@@ -11,6 +11,7 @@
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+#include "filesys/inode.h"
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
@@ -56,11 +57,11 @@ process_execute (const char *file_name)
     if (t->exit_status == -1)
     {
       tid = TID_ERROR;
-      sema_up (&t->wait_child);
+      sema_up (&t->wait_load);
       process_wait (t->tid);
     }
     else
-      sema_up (&t->wait_child);
+      sema_up (&t->wait_load);
   }
 
   return tid;
@@ -123,7 +124,7 @@ start_process (void *f_name)
       if_.esp -= 4;
       *(int *)(if_.esp) = 0;
       sema_up (&thread_current ()->wait_child);
-      sema_down (&thread_current ()->wait_child);
+      sema_down (&thread_current ()->wait_load);
       free (argv_save);
       palloc_free_page (file_name);
     }
@@ -131,7 +132,7 @@ start_process (void *f_name)
   {
     thread_current ()->exit_status = -1;
     sema_up (&thread_current ()->wait_child);
-    sema_down (&thread_current ()->wait_child);
+    sema_down (&thread_current ()->wait_load);
     free (argv_save);
     palloc_free_page (file_name);
   /* If load failed, quit. */
@@ -188,6 +189,7 @@ process_exit (void)
   struct thread *curr = thread_current ();
   uint32_t *pd;
 
+  inode_backup ();
   if (curr->parent != NULL)
   {
     intr_disable ();

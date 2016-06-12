@@ -14,6 +14,7 @@
 struct inode;
 
 /* Opening and closing directories. */
+void dir_init (void);
 bool dir_create (disk_sector_t sector, size_t entry_cnt);
 struct dir *dir_open (struct inode *);
 struct dir *dir_open_root (void);
@@ -26,5 +27,9 @@ bool dir_lookup (const struct dir *, const char *name, struct inode **);
 bool dir_add (struct dir *, const char *name, disk_sector_t);
 bool dir_remove (struct dir *, const char *name);
 bool dir_readdir (struct dir *, char name[NAME_MAX + 1]);
+struct dir *dir_lookup_dir (const struct dir *, const char *, bool, char *);
+bool dir_mkdir (const char *);
+bool dir_chdir (const char *);
+bool dir_readdir (struct dir *, char *name);
 
 #endif /* filesys/directory.h */

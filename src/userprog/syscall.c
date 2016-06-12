@@ -10,6 +10,8 @@
 #include "userprog/process.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
+#include "filesys/directory.h"
+#include "filesys/inode.h"
 
 static void syscall_handler (struct intr_frame *);
 static int sys_write (int , const void *, unsigned);
@@ -25,6 +27,11 @@ static int sys_read (int, void *, unsigned);
 static int sys_filesize (int);
 static void sys_seek (int, unsigned);
 static unsigned sys_tell (int);
+static bool sys_chdir (const char *);
+static bool sys_mkdir (const char *);
+static bool sys_readdir (int, char *);
+static bool sys_isdir (int);
+static int sys_inumber (int);
 
 static int allocate_fd ();
 static struct file_fd *find_file_fd (int);
@@ -101,6 +108,21 @@ syscall_handler (struct intr_frame *f)
     case SYS_TELL:
       ret = sys_tell (*(p + 1));
       break;
+    case SYS_CHDIR:
+      ret = sys_chdir (*(p + 1));
+      break;
+    case SYS_MKDIR:
+      ret = sys_mkdir (*(p + 1));
+      break;
+    case SYS_READDIR:
+      ret = sys_readdir (*(p + 1), *(p + 2));
+      break;
+    case SYS_ISDIR:
+      ret = sys_isdir (*(p + 1));
+      break;
+    case SYS_INUMBER:
+      ret = sys_inumber (*(p + 1));
+      break;
   }
 
   f->eax = ret;
@@ -128,6 +150,9 @@ sys_write (int fd, const void *buffer, unsigned length)
       return ret;
     if(!pointer_checkvalid(buffer,1) || !pointer_checkvalid(buffer+length, 1))
       sys_exit (-1);
+    if (inode_is_dir (f_fd->file->inode))
+      return -1;
+    
     lock_acquire (&fd_lock);
     ret = file_write (f_fd->file, buffer, length);
     lock_release (&fd_lock);
@@ -261,6 +286,7 @@ sys_read (int fd, void *buffer, unsigned size)
       sys_exit(-1);
     lock_acquire (&fd_lock);
     ret = file_read (f_fd->file, buffer, size);
+    //printf ("ret %d size %d filesize %d\n", ret, size, sys_filesize (fd));
     lock_release (&fd_lock);
   }
   return ret;
@@ -291,6 +317,70 @@ sys_tell (int fd)
   return file_tell(f_fd->file); 
   
 }
+
+static bool
+sys_chdir (const char *dir)
+{
+  if(!pointer_checkvalid(dir, strnlen(dir, 128)))
+    sys_exit(-1);
+  return dir_chdir (dir);
+}
+
+static bool 
+sys_mkdir (const char *dir)
+{
+  if(!pointer_checkvalid(dir, strnlen(dir, 128)))
+    sys_exit(-1);
+  return dir_mkdir (dir);
+}
+
+static bool
+sys_readdir (int fd, char *name)
+{
+  struct file_fd *f_fd;
+  struct dir *dir;
+  bool ret;
+
+  if(!pointer_checkvalid(name, strnlen(name, 128)))
+    sys_exit(-1);
+  f_fd = find_file_fd (fd);
+  if (f_fd == NULL)
+    return false;
+  if (!inode_is_dir (f_fd->file->inode))
+    return false;
+  dir = dir_open (f_fd->file->inode);
+
+  ret = dir_readdir (dir, name);
+  dir_close (dir);
+
+  return ret;
+}
+
+  
+
+
+
+
+static bool
+sys_isdir (int fd)
+{
+  struct file_fd *f_fd;
+  f_fd = find_file_fd (fd);
+  if (f_fd == NULL)
+    return -1;
+  return inode_is_dir (f_fd->file->inode);
+}
+
+static int
+sys_inumber (int fd)
+{
+  struct file_fd *f_fd;
+  f_fd = find_file_fd (fd);
+  if (f_fd == NULL)
+    return -1;
+  return inode_get_inumber (f_fd->file->inode);
+}
+
 
 static int
 allocate_fd ()

@@ -5,6 +5,9 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/synch.h"
+#ifdef FILESYS
+#include "filesys/directory.h"
+#endif
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -98,6 +101,7 @@ struct thread
     uint32_t *pagedir;                  /* Page directory. */
     struct list_elem elem_child;
     struct semaphore wait_child;
+    struct semaphore wait_load;
     struct thread *parent;
     bool wait_parent;
     struct list children;
@@ -105,6 +109,9 @@ struct thread
     struct file *file;
 
     struct list file_list;
+#endif
+#ifdef FILESYS
+    disk_sector_t dir;
 #endif
 
     /* Owned by thread.c. */

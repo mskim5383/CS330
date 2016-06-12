@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <list.h>
+#include "threads/thread.h"
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
@@ -21,12 +22,19 @@ struct dir_entry
     bool in_use;                        /* In use or free? */
   };
 
+
+void
+dir_init (void)
+{
+  thread_current ()->dir = ROOT_DIR_SECTOR;
+}
+
 /* Creates a directory with space for ENTRY_CNT entries in the
    given SECTOR.  Returns true if successful, false on failure. */
 bool
 dir_create (disk_sector_t sector, size_t entry_cnt) 
 {
-  return inode_create (sector, entry_cnt * sizeof (struct dir_entry));
+  return inode_create (sector, entry_cnt * sizeof (struct dir_entry), true);
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -132,6 +140,183 @@ dir_lookup (const struct dir *dir, const char *name,
   return *inode != NULL;
 }
 
+struct dir *
+dir_lookup_dir (const struct dir *dir, const char *name, bool schubert, char *last_name)
+{
+  char _name[1000];
+  char *token, *_token, *save_ptr;
+  struct inode *inode;
+  struct dir *_dir = dir_reopen (dir);
+  bool success = true;
+  strlcpy (_name, name, strnlen (name, 1000) + 1);
+  if (strnlen (_name, 1000) == 0)
+  {
+    dir_close (_dir);
+    return NULL;
+  }
+
+  if (_name[strnlen (_name, 1000) - 1] == '/')
+  {
+    _name[strnlen (_name, 1000) - 1] = '\0';
+  }
+
+  if (strnlen (_name, 1000) == 0)
+  {
+    dir_close (_dir);
+    _dir = dir_open_root ();
+    if (last_name != NULL)
+      strlcpy (last_name, "root", strnlen ("root", 128) + 1);
+    return _dir;
+  }
+
+  if (_name[0] == '/')
+  {
+    dir_close (_dir);
+    _dir = dir_open_root ();
+  }
+  for (token = strtok_r (_name, "/", &save_ptr); token != NULL;
+       token = _token)
+  {
+    _token = strtok_r (NULL, "/", &save_ptr);
+    if (schubert && _token == NULL)
+    {
+      strlcpy (last_name, token, strnlen (token, 128) + 1);
+      break;
+    }
+    if (!strcmp (token, ""))
+    {
+      continue;
+    }
+    else
+    {
+      if(dir_lookup (_dir, token, &inode))
+      {
+        dir_close (_dir);
+        _dir = dir_open (inode);
+        if (_dir == NULL)
+        {
+          success = false;
+          break;
+        }
+      }
+      else
+      {
+        success = false;
+        break;
+      }
+    }
+    token = _token;
+  }
+
+  if (success)
+    return _dir;
+  return NULL;
+}
+
+bool
+dir_mkdir (const char *name)
+{
+  struct dir *dir = dir_open (inode_open (thread_current ()->dir)), *_dir, *new_dir;
+  struct inode *inode;
+  char last_name[14];
+  bool success = true;
+  disk_sector_t inode_sector = 0;
+
+  _dir = dir_lookup_dir (dir, name, true, last_name);
+  if (_dir == NULL)
+  {
+    success = false;
+  }
+  else
+  {
+    if (dir_lookup (_dir, last_name, &inode))
+    {
+      inode_close (inode);
+      success = false;
+    }
+    else
+    {
+      if (free_map_allocate (1, &inode_sector))
+      {
+        if (dir_create (inode_sector, 16))
+        {
+          new_dir = dir_open (inode_open (inode_sector));
+          dir_add (new_dir, ".", inode_sector);
+          dir_add (new_dir, "..", _dir->inode->sector);
+          dir_add (_dir, last_name, inode_sector);
+          dir_close (new_dir);
+        }
+        else
+        {
+          success = false;
+          free_map_release (inode_sector, 1);
+        }
+      }
+      else
+      {
+        success = false;
+      }
+    }
+    dir_close (_dir);
+  }
+  dir_close (dir);
+
+  return success;
+}
+
+bool
+dir_chdir (const char *name)
+{
+  struct dir *dir = dir_open (inode_open (thread_current ()->dir)), *_dir;
+  struct inode *inode;
+  char last_name[14];
+  bool success = true;
+  disk_sector_t new_dir;
+
+  _dir = dir_lookup_dir (dir, name, false, NULL);
+  if (_dir)
+  {
+    new_dir = inode_get_inumber (_dir->inode);
+    thread_current ()->dir = new_dir;
+    dir_close (_dir);
+  }
+  else
+  {
+    success = false;
+  }
+  dir_close (dir);
+
+  return success;
+}
+  
+bool
+dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
+{
+  struct dir_entry e;
+
+  while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
+    {
+      dir->pos += sizeof e;
+      if (!strcmp (e.name, ".") || !strcmp(e.name, ".."))
+        continue;
+      if (e.in_use)
+        {
+          strlcpy (name, e.name, NAME_MAX + 1);
+          return true;
+        } 
+    }
+
+  return false;
+}
+
+
+
+
+
+        
+  
+
+
 /* Adds a file named NAME to DIR, which must not already contain a
    file by that name.  The file's inode is in sector
    INODE_SECTOR.
@@ -178,6 +363,7 @@ dir_add (struct dir *dir, const char *name, disk_sector_t inode_sector)
   return success;
 }
 
+
 /* Removes any entry for NAME in DIR.
    Returns true if successful, false on failure,
    which occurs only if there is no file with the given NAME. */
@@ -201,6 +387,27 @@ dir_remove (struct dir *dir, const char *name)
   if (inode == NULL)
     goto done;
 
+
+  if (inode_is_dir (inode))
+  {
+    struct dir *dir = dir_open (inode);
+    struct dir_entry _e;
+    while (inode_read_at (dir->inode, &_e, sizeof _e, dir->pos) == sizeof _e) 
+      {
+        dir->pos += sizeof _e;
+        if (_e.in_use && (strcmp (_e.name, ".") && strcmp(_e.name, "..")))
+          {
+            dir_close (dir);
+            goto done;
+          } 
+      }
+    dir_close (dir);
+    if (inode->sector == thread_current ()->dir)
+      goto done;
+  }
+
+  if (inode->open_cnt > 1)
+    goto done;
   /* Erase directory entry. */
   e.in_use = false;
   if (inode_write_at (dir->inode, &e, sizeof e, ofs) != sizeof e) 
@@ -215,22 +422,3 @@ dir_remove (struct dir *dir, const char *name)
   return success;
 }
 
-/* Reads the next directory entry in DIR and stores the name in
-   NAME.  Returns true if successful, false if the directory
-   contains no more entries. */
-bool
-dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
-{
-  struct dir_entry e;
-
-  while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
-    {
-      dir->pos += sizeof e;
-      if (e.in_use)
-        {
-          strlcpy (name, e.name, NAME_MAX + 1);
-          return true;
-        } 
-    }
-  return false;
-}

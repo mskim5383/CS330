@@ -204,6 +204,9 @@ thread_create (const char *name, int priority,
   list_push_back (&thread_current ()->children, &t->elem_child);
   t->parent = thread_current ();
 #endif
+#ifdef FILESYS
+  t->dir = thread_current ()->dir;
+#endif
 
   /* Add to run queue. */
   thread_unblock (t);
@@ -474,6 +477,7 @@ init_thread (struct thread *t, const char *name, int priority)
 
 #ifdef USERPROG
   sema_init (&t->wait_child, 0);
+  sema_init (&t->wait_load, 0);
   t->wait_parent = false;
   list_init (&t->children);
   t->exit_status = -3;
