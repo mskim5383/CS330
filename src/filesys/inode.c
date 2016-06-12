@@ -160,6 +160,7 @@ byte_to_sector2 (struct inode_disk *data, off_t pos)
       memset (doubly->inode_indirect, SECTOR_ERROR, 126 * 4);
       _disk_write (filesys_disk, sector, doubly, 0, DISK_SECTOR_SIZE);
     }
+    _disk_write (filesys_disk, data->sector, data, 0, DISK_SECTOR_SIZE);
     _disk_read (filesys_disk, sector, doubly, 0, DISK_SECTOR_SIZE);
     ASSERT (doubly->magic == INODE_DOUBLY_MAGIC);
     struct inode_indirect *indirect = (struct inode_indirect *) malloc (sizeof (struct inode_indirect));
