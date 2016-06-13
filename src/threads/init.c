@@ -113,7 +113,6 @@ main (void)
   /* Initialize file system. */
   disk_init ();
   filesys_init (format_filesys);
-  inode_init ();
 #endif
 
   printf ("Boot complete.\n");

@@ -627,8 +627,9 @@ static void _disk_write (struct disk *d, disk_sector_t sec_no, const void *buffe
 
 write:
   memcpy (bc->buffer + start, buffer, end);
+  bc->dirty = true;
   bc->sector = sec_no;
-  disk_write (d, bc->sector, bc->buffer);
+  //disk_write (d, bc->sector, bc->buffer);
   bc->alloc = true;
   bc->access = true;
   lock_release (&bc->lock);
@@ -637,7 +638,7 @@ write:
 void
 inode_backup (void)
 {
-  //printf ("inode backup\n");
+ // printf ("inode backup\n");
   int i;
   struct BC *bc;
   //dir_save (dir_open_root ());

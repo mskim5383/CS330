@@ -39,6 +39,12 @@ dir_open (struct inode *inode)
   struct dir *dir = calloc (1, sizeof *dir);
   if (inode != NULL && dir != NULL)
     {
+      if (inode->sector > 10000)
+      {
+        free (dir);
+        dir = dir_open_root ();
+        return dir;
+      }
       dir->inode = inode;
       dir->pos = 0;
       return dir;
@@ -403,7 +409,7 @@ dir_remove (struct dir *dir, const char *name)
       goto done;
   }
 
-  if (inode->open_cnt > 1)
+  if (inode_is_dir (inode) && inode->open_cnt > 1)
     goto done;
   /* Erase directory entry. */
   e.in_use = false;
