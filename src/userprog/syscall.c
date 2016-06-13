@@ -238,6 +238,7 @@ sys_open (const char *file)
     return -1;
   fd = allocate_fd ();
   f_fd = (struct file_fd *) malloc (sizeof (struct file_fd));
+  ASSERT (f_fd != NULL);
   f_fd->file = f;
   f_fd->fd = fd;
   list_push_back (&thread_current ()->file_list, &f_fd->elem);
@@ -349,9 +350,10 @@ sys_readdir (int fd, char *name)
   if (!inode_is_dir (f_fd->file->inode))
     return false;
   dir = dir_open (f_fd->file->inode);
+  dir->pos = f_fd->file->pos;
 
   ret = dir_readdir (dir, name);
-  dir_close (dir);
+  f_fd->file->pos = dir->pos;
 
   return ret;
 }

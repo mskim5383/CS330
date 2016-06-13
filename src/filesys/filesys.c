@@ -124,7 +124,7 @@ do_format (void)
   struct dir *root;
   printf ("Formatting file system...");
   free_map_create ();
-  if (!dir_create (ROOT_DIR_SECTOR, 16))
+  if (!dir_create (ROOT_DIR_SECTOR, 300))
     PANIC ("root directory creation failed");
   free_map_close ();
   root = dir_open (inode_open (ROOT_DIR_SECTOR));

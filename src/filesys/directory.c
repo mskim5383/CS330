@@ -7,12 +7,6 @@
 #include "filesys/inode.h"
 #include "threads/malloc.h"
 
-/* A directory. */
-struct dir 
-  {
-    struct inode *inode;                /* Backing store. */
-    off_t pos;                          /* Current position. */
-  };
 
 /* A single directory entry. */
 struct dir_entry 
@@ -238,7 +232,7 @@ dir_mkdir (const char *name)
     {
       if (free_map_allocate (1, &inode_sector))
       {
-        if (dir_create (inode_sector, 16))
+        if (dir_create (inode_sector, 0))
         {
           new_dir = dir_open (inode_open (inode_sector));
           dir_add (new_dir, ".", inode_sector);

@@ -71,7 +71,9 @@ byte_to_sector2 (struct inode_disk *data, off_t pos)
   if (pos / DISK_SECTOR_SIZE < DIRECT_SECTOR)
   {
     disk_sector_t sector = data->sector[pos / DISK_SECTOR_SIZE];
-    if (sector == SECTOR_ERROR || sector == 0xffffff)
+    if (sector == 0xcccccccc)
+      return SECTOR_ERROR;
+    if (sector == SECTOR_ERROR || sector == 0xffffff || sector == 0xcccccccc || sector == 0xcccccc)
     {
       static char zeros[DISK_SECTOR_SIZE];
       if (!free_map_allocate (1, &(data->sector[pos / DISK_SECTOR_SIZE]))) 
@@ -98,7 +100,7 @@ byte_to_sector2 (struct inode_disk *data, off_t pos)
       sector = data->indirect[(pos / DISK_SECTOR_SIZE - DIRECT_SECTOR) / 126];
       indirect->start = sector;
       indirect->magic = INODE_INDIRECT_MAGIC;
-      memset (indirect->sector, SECTOR_ERROR, 126 * 4);
+      memset (indirect->sector, 0xff, 126 * 4);
       _disk_write (filesys_disk, sector, indirect, 0, DISK_SECTOR_SIZE); 
     }
     _disk_write (filesys_disk, data->start, data, 0, DISK_SECTOR_SIZE);
@@ -137,7 +139,7 @@ byte_to_sector2 (struct inode_disk *data, off_t pos)
       _disk_read (filesys_disk, sector, doubly, 0, DISK_SECTOR_SIZE);
       doubly->start = sector;
       doubly->magic = INODE_DOUBLY_MAGIC;
-      memset (doubly->inode_indirect, SECTOR_ERROR, 126 * 4);
+      memset (doubly->inode_indirect, 0xff, 126 * 4);
       _disk_write (filesys_disk, sector, doubly, 0, DISK_SECTOR_SIZE);
     }
     _disk_write (filesys_disk, data->sector, data, 0, DISK_SECTOR_SIZE);
@@ -156,7 +158,7 @@ byte_to_sector2 (struct inode_disk *data, off_t pos)
       sector = doubly->inode_indirect[(pos / DISK_SECTOR_SIZE - DIRECT_SECTOR - 5 * 126) % (126 * 126)];
       indirect->start = sector;
       indirect->magic = INODE_INDIRECT_MAGIC;
-      memset (indirect->sector, SECTOR_ERROR, 126 * 4);
+      memset (indirect->sector, 0xff, 126 * 4);
       _disk_write (filesys_disk, sector, indirect, 0, DISK_SECTOR_SIZE); 
     }
     _disk_write (filesys_disk, doubly->start, doubly, 0, DISK_SECTOR_SIZE);
@@ -288,8 +290,9 @@ inode_create (disk_sector_t sector, off_t length, bool is_dir)
   ASSERT (sizeof *disk_inode == DISK_SECTOR_SIZE);
 
   disk_inode = calloc (1, sizeof *disk_inode);
-  memset (disk_inode->sector, SECTOR_ERROR, DIRECT_SECTOR * 4);
-  memset (disk_inode->indirect, SECTOR_ERROR, 5 * 4);
+
+  memset (disk_inode->sector, 0xff, DIRECT_SECTOR * 4);
+  memset (disk_inode->indirect, 0xff, 5 * 4);
   disk_inode->doubly_indirect = SECTOR_ERROR;
 
   if (disk_inode != NULL)
