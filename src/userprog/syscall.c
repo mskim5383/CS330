@@ -353,6 +353,7 @@ sys_readdir (int fd, char *name)
   dir->pos = f_fd->file->pos;
 
   ret = dir_readdir (dir, name);
+  //printf ("readdir ret %d name %s\n", ret, name);
   f_fd->file->pos = dir->pos;
 
   return ret;

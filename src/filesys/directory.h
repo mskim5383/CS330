@@ -38,5 +38,6 @@ struct dir *dir_lookup_dir (const struct dir *, const char *, bool, char *);
 bool dir_mkdir (const char *);
 bool dir_chdir (const char *);
 bool dir_readdir (struct dir *, char *name);
+void dir_save (struct dir *);
 
 #endif /* filesys/directory.h */

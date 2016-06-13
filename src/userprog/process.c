@@ -189,7 +189,6 @@ process_exit (void)
   struct thread *curr = thread_current ();
   uint32_t *pd;
 
-  inode_backup ();
   if (curr->parent != NULL)
   {
     intr_disable ();

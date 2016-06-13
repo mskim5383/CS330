@@ -189,6 +189,7 @@ byte_to_sector2 (struct inode_disk *data, off_t pos)
 
 static void free_inode_disk (struct inode_disk *data)
 {
+  return ;
   int i;
   struct inode_indirect *indirect = (struct inode_indirect *) malloc (sizeof (struct inode_indirect));
   for (i = 0; i < DIRECT_SECTOR; ++i)
@@ -636,14 +637,17 @@ write:
 void
 inode_backup (void)
 {
+  //printf ("inode backup\n");
   int i;
   struct BC *bc;
+  //dir_save (dir_open_root ());
   for (i = 0; i < 64; ++i)
   {
     bc = &BClist[i];
     lock_acquire (&bc->lock);
-    if (bc->alloc && bc->dirty)
+    if (bc->alloc)
     {
+      //printf ("sector %d\n", bc->sector);
       disk_write (filesys_disk, bc->sector, bc->buffer);
     }
     lock_release (&bc->lock);

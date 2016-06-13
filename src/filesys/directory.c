@@ -127,7 +127,9 @@ dir_lookup (const struct dir *dir, const char *name,
   ASSERT (name != NULL);
 
   if (lookup (dir, name, &e, NULL))
+  {
     *inode = inode_open (e.inode_sector);
+  }
   else
     *inode = NULL;
 
@@ -288,6 +290,7 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
 {
   struct dir_entry e;
 
+  //printf ("dir_readdir pos %d sector %d\n", dir->pos, dir->inode->sector);
   while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
     {
       dir->pos += sizeof e;
@@ -414,5 +417,30 @@ dir_remove (struct dir *dir, const char *name)
  done:
   inode_close (inode);
   return success;
+}
+
+void
+dir_save (struct dir *dir)
+{
+  struct dir_entry e;
+
+  dir->pos = 0;
+  //printf ("dir_save pos %d sector %d\n", dir->pos, dir->inode->sector);
+  while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
+    {
+      dir->pos += sizeof e;
+      if (!strcmp (e.name, ".") || !strcmp(e.name, ".."))
+        continue;
+      if (e.in_use)
+        {
+          struct dir *_dir = (struct dir *) malloc (sizeof (struct dir));
+          //printf ("name %s\n", e.name);
+          _dir -> pos = 0;
+          _dir->inode = inode_open (e.inode_sector);
+          if (inode_is_dir(_dir->inode))
+            dir_save (_dir);
+          free (_dir);
+        } 
+    }
 }
 

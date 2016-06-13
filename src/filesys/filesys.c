@@ -39,6 +39,7 @@ void
 filesys_done (void) 
 {
   free_map_close ();
+  inode_backup ();
 }
 
 /* Creates a file named NAME with the given INITIAL_SIZE.
@@ -87,7 +88,11 @@ filesys_open (const char *name)
     if (_dir != NULL)
     {
       if (!strcmp (last_name, "root"))
+      {
+        dir_close (_dir);
+        _dir = dir_open_root ();
         inode = dir_get_inode (_dir);
+      }
       else
         dir_lookup (_dir, last_name, &inode);
       dir_close (_dir);
@@ -126,9 +131,9 @@ do_format (void)
   free_map_create ();
   if (!dir_create (ROOT_DIR_SECTOR, 300))
     PANIC ("root directory creation failed");
-  free_map_close ();
   root = dir_open (inode_open (ROOT_DIR_SECTOR));
   dir_add (root, ".", ROOT_DIR_SECTOR);
   dir_add (root, "..", ROOT_DIR_SECTOR);
+  free_map_close ();
   printf ("done.\n");
 }
