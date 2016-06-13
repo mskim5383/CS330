@@ -72,15 +72,11 @@ process_execute (const char *file_name)
 static void
 start_process (void *f_name)
 {
-  char *file_name = f_name;
+  char *file_name = f_name, *save_ptr, *name;
   struct intr_frame if_;
   bool success;
+  int len = strlen (f_name);
 
-  int argc, i;
-  int *argv_save;
-  size_t fn_len;
-  char *token, *save_ptr;
-  void *fn_real_start;
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -88,44 +84,50 @@ start_process (void *f_name)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
 
-  
-  fn_len = strlen (file_name);
-  argv_save = malloc (32 * sizeof (int));
-  argv_save[0] = 0;
-  argc = 0; 
-  
-  for(token = strtok_r (file_name, " ", &save_ptr); token != NULL;
-      token = strtok_r (NULL, " ", &save_ptr))
-  {
-    while (*(save_ptr) == ' ')
-      ++save_ptr;
-    argv_save[++argc] = save_ptr - file_name;  
-  }
 
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (name = strtok_r (file_name, " ", &save_ptr), &if_.eip, &if_.esp);
 
   if (success)
     {
-      thread_current ()->file = filesys_open(file_name);
-      file_deny_write (thread_current ()->file);
-      if_.esp -= fn_len + 1;
-      memcpy (if_.esp, file_name, fn_len +1);
-      fn_real_start = if_.esp;
-      if_.esp -= 4 + (-fn_len - 1) % 4;
-      *(int *)(if_.esp) = 0;
-      for(i = 0; i < argc; i++){
-        if_.esp -= 4;
-        *(void **)(if_.esp) = fn_real_start + argv_save[argc-i-1];
+      int argc = 0, i;
+      int32_t argv_save[32];
+      char *token;
+
+      argv_save[0] = file_name;
+      for(token = name; token != NULL; token = strtok_r (NULL, " ", &save_ptr))
+      {
+        while (*save_ptr == ' ')
+          ++save_ptr;
+        argc++;
+        argv_save[argc] = save_ptr;  
       }
+
+      thread_current ()->file = filesys_open(name);
+      file_deny_write (thread_current ()->file);
+
+      if_.esp -= len + 1;
+      memcpy (if_.esp, f_name, len + 1);
+
+      for (i = 0; i < argc; i++)
+        argv_save[i] += (int) if_.esp - (int) file_name;
+
+      if_.esp -= 4;
+      if_.esp -= (int) if_.esp % 4;
+      if_.esp -= 4;
+      *(int *)(if_.esp) = 0;
+
+      if_.esp -= 4 * argc;
+      memcpy (if_.esp, argv_save, 4 * argc);
+
       if_.esp -= 4;
       *(void **)(if_.esp) = if_.esp + 4;
       if_.esp -= 4;
       *(int *)(if_.esp) = argc;
       if_.esp -= 4;
       *(int *)(if_.esp) = 0;
+
       sema_up (&thread_current ()->wait_child);
       sema_down (&thread_current ()->wait_load);
-      free (argv_save);
       palloc_free_page (file_name);
     }
   else
@@ -133,7 +135,6 @@ start_process (void *f_name)
     thread_current ()->exit_status = -1;
     sema_up (&thread_current ()->wait_child);
     sema_down (&thread_current ()->wait_load);
-    free (argv_save);
     palloc_free_page (file_name);
   /* If load failed, quit. */
     thread_exit ();
@@ -535,7 +536,7 @@ setup_stack (void **esp)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        *esp = PHYS_BASE - 12;
+        *esp = PHYS_BASE;
       else
         palloc_free_page (kpage);
     }
